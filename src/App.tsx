@@ -104,6 +104,16 @@ type FolderProps = {
   onPlayPlaylist?: (playlist: Playlist) => void
 }
 
+type PlaylistAddFolderProps = {
+  folder: FolderNode
+  level: number
+  playlist: Playlist
+  onAddItem: (itemId: string) => void
+  searchQuery: string
+  expandedFolders: Set<string>
+  onToggleFolder: (path: string) => void
+}
+
 function FolderComponent({
   folder,
   level,
@@ -280,6 +290,141 @@ function FolderComponent({
   )
 }
 
+// Component for adding items to playlist (tree view)
+function PlaylistAddFolderComponent({
+  folder,
+  level,
+  playlist,
+  onAddItem,
+  searchQuery,
+  expandedFolders,
+  onToggleFolder,
+}: PlaylistAddFolderProps) {
+  const hasContent = folder.files.length > 0 || folder.subfolders.size > 0
+  const isExpanded = expandedFolders.has(folder.fullPath) || level === 0
+  const shouldShow = searchQuery === '' || isExpanded
+
+  // Filter files based on search
+  const filteredFiles = useMemo(() => {
+    if (!searchQuery) return folder.files
+    const q = searchQuery.toLowerCase()
+    return folder.files.filter((item: MediaItem) => {
+      const searchableText = [
+        item.title,
+        item.path,
+        item.description || '',
+        item.metadata?.album || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+      return searchableText.includes(q)
+    })
+  }, [folder.files, searchQuery])
+
+  const filteredSubfolders = useMemo(() => {
+    if (!searchQuery) return Array.from(folder.subfolders.values())
+    const q = searchQuery.toLowerCase()
+    return Array.from(folder.subfolders.values()).filter((subfolder) => {
+      if (subfolder.name.toLowerCase().includes(q)) return true
+      const hasMatchingFile = (node: FolderNode): boolean => {
+        if (
+          node.files.some((f) => {
+            const searchableText = [
+              f.title,
+              f.path,
+              f.description || '',
+            ]
+              .join(' ')
+              .toLowerCase()
+            return searchableText.includes(q)
+          })
+        ) {
+          return true
+        }
+        return Array.from(node.subfolders.values()).some(hasMatchingFile)
+      }
+      return hasMatchingFile(subfolder)
+    })
+  }, [folder.subfolders, searchQuery])
+
+  const totalItems = useMemo(() => {
+    const countInFolder = (node: FolderNode): number => {
+      let count = node.files.length
+      node.subfolders.forEach((sub) => {
+        count += countInFolder(sub)
+      })
+      return count
+    }
+    return countInFolder(folder)
+  }, [folder])
+
+  if (!hasContent && level > 0) return null
+
+  return (
+    <div className="folder-container">
+      {level > 0 && (
+        <button
+          type="button"
+          className="folder-header"
+          onClick={() => onToggleFolder(folder.fullPath)}
+          style={{ paddingLeft: `${level * 1.25 + 0.5}rem` }}
+        >
+          <span className="folder-icon">{isExpanded ? '📂' : '📁'}</span>
+          <span className="folder-name">{folder.name}</span>
+          <span className="folder-count">({totalItems})</span>
+        </button>
+      )}
+
+      {isExpanded && shouldShow && (
+        <div className={level === 0 ? 'folder-content root-content' : 'folder-content'}>
+          {filteredSubfolders.map((subfolder) => (
+            <PlaylistAddFolderComponent
+              key={subfolder.fullPath}
+              folder={subfolder}
+              level={level + 1}
+              playlist={playlist}
+              onAddItem={onAddItem}
+              searchQuery={searchQuery}
+              expandedFolders={expandedFolders}
+              onToggleFolder={onToggleFolder}
+            />
+          ))}
+
+          {filteredFiles.map((item) => {
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="playlist-add-item-button"
+                onClick={() => onAddItem(item.id)}
+                style={{
+                  paddingLeft: level === 0 ? '0.5rem' : `${Math.min((level + 1) * 1.25 + 0.5, 3)}rem`,
+                  maxWidth: '100%'
+                }}
+                title={`Add "${item.title}" to playlist`}
+              >
+                <span className="playlist-add-item-icon">
+                  {item.type === 'video' ? '🎬' : '🎵'}
+                </span>
+                <div className="playlist-add-item-info">
+                  <span className="playlist-add-item-title">{item.title}</span>
+                  {item.metadata?.album && (
+                    <span className="playlist-add-item-album">{item.metadata.album}</span>
+                  )}
+                  {item.metadata?.genre && (
+                    <span className="playlist-add-item-genre">{item.metadata.genre}</span>
+                  )}
+                </div>
+                <span className="playlist-add-item-action">+</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Default playlist (will be migrated to localStorage)
 const DEFAULT_PLAYLIST: Playlist = {
   id: 'morning-breathwork',
@@ -327,6 +472,9 @@ function App() {
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [importData, setImportData] = useState('')
+  const [playlistAddSearch, setPlaylistAddSearch] = useState('')
+  const [playlistAddGenre, setPlaylistAddGenre] = useState<string>('')
+  const [playlistAddExpandedFolders, setPlaylistAddExpandedFolders] = useState<Set<string>>(new Set())
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const versionCheckIntervalRef = useRef<number | null>(null)
@@ -902,6 +1050,44 @@ function App() {
     return items.filter((item) => !playlistItemIds.has(item.id))
   }
 
+
+  // Get unique genres from available items
+  const getAvailableGenres = (playlist: Playlist) => {
+    const availableItems = getAvailableItemsForPlaylist(playlist)
+    const genres = new Set<string>()
+    availableItems.forEach((item) => {
+      if (item.metadata?.genre) {
+        genres.add(item.metadata.genre)
+      }
+    })
+    return Array.from(genres).sort()
+  }
+
+  // Filter items by search and genre
+  const filterItemsForPlaylist = (items: MediaItem[], searchQuery: string, genre: string) => {
+    return items.filter((item) => {
+      // Genre filter
+      if (genre && item.metadata?.genre !== genre) {
+        return false
+      }
+
+      // Search filter
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
+        const searchableText = [
+          item.title,
+          item.path,
+          item.description || '',
+          item.metadata?.album || '',
+          item.metadata?.genre || '',
+        ].join(' ')
+        return searchableText.toLowerCase().includes(q)
+      }
+
+      return true
+    })
+  }
+
   // Get all playlists (my + shared) for display
   const allPlaylists = useMemo(() => {
     return [...playlists, ...sharedPlaylists]
@@ -1065,28 +1251,86 @@ function App() {
 
                     <div className="playlist-add-section">
                       <div className="playlist-add-label">Add items:</div>
-                      <div className="playlist-add-items-list">
-                        {getAvailableItemsForPlaylist(editingPlaylist).length > 0 ? (
-                          getAvailableItemsForPlaylist(editingPlaylist).map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className="playlist-add-item-button"
-                              onClick={() => handleAddItemToPlaylist(editingPlaylist.id, item.id, editingPlaylist.shared)}
-                              title={`Add "${item.title}" to playlist`}
-                            >
-                              <span className="playlist-add-item-icon">
-                                {item.type === 'video' ? '🎬' : '🎵'}
-                              </span>
-                              <span className="playlist-add-item-title">{item.title}</span>
-                              <span className="playlist-add-item-action">+</span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="playlist-add-empty">
-                            All available items are already in this playlist.
-                          </div>
+                      
+                      {/* Search and Filter Controls */}
+                      <div className="playlist-add-controls">
+                        <input
+                          type="search"
+                          className="playlist-add-search"
+                          placeholder="Search by folder or item name..."
+                          value={playlistAddSearch}
+                          onChange={(e) => {
+                            setPlaylistAddSearch(e.target.value)
+                            // Auto-expand folders when searching
+                            if (e.target.value) {
+                              const allPaths = new Set<string>()
+                              const collectPaths = (node: FolderNode) => {
+                                if (node.fullPath) allPaths.add(node.fullPath)
+                                node.subfolders.forEach(collectPaths)
+                              }
+                              const availableItems = getAvailableItemsForPlaylist(editingPlaylist)
+                              const filteredItems = filterItemsForPlaylist(availableItems, e.target.value, playlistAddGenre)
+                              const tree = buildFolderTree(filteredItems)
+                              collectPaths(tree)
+                              setPlaylistAddExpandedFolders(allPaths)
+                            }
+                          }}
+                        />
+                        {getAvailableGenres(editingPlaylist).length > 0 && (
+                          <select
+                            className="playlist-add-genre-filter"
+                            value={playlistAddGenre}
+                            onChange={(e) => setPlaylistAddGenre(e.target.value)}
+                          >
+                            <option value="">All Genres</option>
+                            {getAvailableGenres(editingPlaylist).map((genre) => (
+                              <option key={genre} value={genre}>
+                                {genre}
+                              </option>
+                            ))}
+                          </select>
                         )}
+                      </div>
+
+                      {/* Tree View of Available Items */}
+                      <div className="playlist-add-items-tree">
+                        {(() => {
+                          const availableItems = getAvailableItemsForPlaylist(editingPlaylist)
+                          const filteredItems = filterItemsForPlaylist(availableItems, playlistAddSearch, playlistAddGenre)
+                          const filteredTree = buildFolderTree(filteredItems)
+                          
+                          if (filteredItems.length === 0) {
+                            return (
+                              <div className="playlist-add-empty">
+                                {availableItems.length === 0
+                                  ? 'All available items are already in this playlist.'
+                                  : 'No items match your search or filter.'}
+                              </div>
+                            )
+                          }
+
+                          return (
+                            <PlaylistAddFolderComponent
+                              folder={filteredTree}
+                              level={0}
+                              playlist={editingPlaylist}
+                              onAddItem={(itemId: string) => handleAddItemToPlaylist(editingPlaylist.id, itemId, editingPlaylist.shared)}
+                              searchQuery={playlistAddSearch}
+                              expandedFolders={playlistAddExpandedFolders}
+                              onToggleFolder={(path: string) => {
+                                setPlaylistAddExpandedFolders((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(path)) {
+                                    next.delete(path)
+                                  } else {
+                                    next.add(path)
+                                  }
+                                  return next
+                                })
+                              }}
+                            />
+                          )
+                        })()}
                       </div>
                     </div>
                   </div>
