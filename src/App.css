@@ -378,6 +378,12 @@ html, body {
   color: #9ca3af;
 }
 
+.media-duration {
+  font-size: 0.7rem;
+  color: #818cf8;
+  font-weight: 500;
+}
+
 .media-collection {
   font-size: 0.8rem;
   color: #cbd5f5;

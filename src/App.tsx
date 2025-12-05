@@ -35,6 +35,19 @@ function buildMediaUrl(relPath: string): string {
   return `${MEDIA_BASE_URL.replace(/\/+$/, '')}/${segments.join('/')}`
 }
 
+// Format duration in seconds to MM:SS or HH:MM:SS
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return ''
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`
+}
+
 function buildFolderTree(items: MediaItem[]): FolderNode {
   const root: FolderNode = {
     name: '',
@@ -268,6 +281,9 @@ function FolderComponent({
                     {item.metadata?.year && (
                       <span className="media-year">{item.metadata.year}</span>
                     )}
+                    {item.metadata?.duration && (
+                      <span className="media-duration">⏱️ {formatDuration(item.metadata.duration)}</span>
+                    )}
                   </div>
                 </div>
                 <div className="media-card-actions">
@@ -491,6 +507,7 @@ function App() {
   const [playlistAddSearch, setPlaylistAddSearch] = useState('')
   const [playlistAddGenre, setPlaylistAddGenre] = useState<string>('')
   const [playlistAddExpandedFolders, setPlaylistAddExpandedFolders] = useState<Set<string>>(new Set())
+  const [loopCurrentItem, setLoopCurrentItem] = useState(false)
   const playlistAddTreeRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -696,6 +713,11 @@ function App() {
   }, [])
 
   const folderTree = useMemo(() => buildFolderTree(items), [items])
+
+  // Reset loop when selecting a new item
+  useEffect(() => {
+    setLoopCurrentItem(false)
+  }, [selectedId])
 
   // Build favorites folder
   const favoritesFolder = useMemo(() => {
@@ -1261,7 +1283,21 @@ function App() {
                   </div>
 
                   <div className="playlist-items-section">
-                    <div className="playlist-items-label">Items ({editingPlaylist.items.length}):</div>
+                    <div className="playlist-items-label">
+                      Items ({editingPlaylist.items.length}):
+                      {(() => {
+                        const totalDuration = editingPlaylist.items.reduce((sum, playlistItem) => {
+                          const item = items.find(i => i.id === playlistItem.itemId)
+                          if (item?.metadata?.duration) {
+                            return sum + item.metadata.duration
+                          }
+                          return sum
+                        }, 0)
+                        return totalDuration > 0 ? (
+                          <span className="playlist-total-duration"> • Total: {formatDuration(totalDuration)}</span>
+                        ) : null
+                      })()}
+                    </div>
                     {editingPlaylist.items.length > 0 ? (
                       <div className="playlist-items-list">
                         {editingPlaylist.items.map((playlistItem, index) => {
@@ -1305,6 +1341,9 @@ function App() {
                                 <div className="playlist-item-title">{item.title}</div>
                                 {item.metadata?.album && (
                                   <div className="playlist-item-album">{item.metadata.album}</div>
+                                )}
+                                {item.metadata?.duration && (
+                                  <div className="playlist-item-duration">⏱️ {formatDuration(item.metadata.duration)}</div>
                                 )}
                               </div>
                               <div className="playlist-item-actions">
@@ -1458,6 +1497,18 @@ function App() {
                               <div className="playlist-manager-item-name">{playlist.name}</div>
                               <div className="playlist-manager-item-count">
                                 {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
+                                {(() => {
+                                  const totalDuration = playlist.items.reduce((sum, playlistItem) => {
+                                    const item = items.find(i => i.id === playlistItem.itemId)
+                                    if (item?.metadata?.duration) {
+                                      return sum + item.metadata.duration
+                                    }
+                                    return sum
+                                  }, 0)
+                                  return totalDuration > 0 ? (
+                                    <span className="playlist-manager-duration"> • {formatDuration(totalDuration)}</span>
+                                  ) : null
+                                })()}
                               </div>
                             </div>
                             <div className="playlist-manager-item-actions">
@@ -1514,6 +1565,18 @@ function App() {
                               </div>
                               <div className="playlist-manager-item-count">
                                 {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
+                                {(() => {
+                                  const totalDuration = playlist.items.reduce((sum, playlistItem) => {
+                                    const item = items.find(i => i.id === playlistItem.itemId)
+                                    if (item?.metadata?.duration) {
+                                      return sum + item.metadata.duration
+                                    }
+                                    return sum
+                                  }, 0)
+                                  return totalDuration > 0 ? (
+                                    <span className="playlist-manager-duration"> • {formatDuration(totalDuration)}</span>
+                                  ) : null
+                                })()}
                               </div>
                             </div>
                             <div className="playlist-manager-item-actions">
@@ -1796,44 +1859,58 @@ function App() {
             {MEDIA_BASE_URL ? (
               <>
                 {selected.type === 'video' ? (
-                  <video
-                    ref={videoRef}
-                    className="player-media"
-                    src={buildMediaUrl(selected.path)}
-                    controls
-                    playsInline
-                    onError={(e) => {
-                      console.error('Video playback error:', e)
-                      const target = e.target as HTMLVideoElement
-                      console.error('Video src:', target.src)
-                      console.error('Error details:', target.error)
-                    }}
-                    onPlay={() => {
-                      // Enter fullscreen when user starts playing (requires user interaction)
-                      if (videoRef.current) {
-                        const video = videoRef.current
-                        const enterFullscreen = async () => {
-                          try {
-                            if (video.requestFullscreen) {
-                              await video.requestFullscreen()
-                            } else if ((video as any).webkitRequestFullscreen) {
-                              await (video as any).webkitRequestFullscreen()
-                            } else if ((video as any).webkitEnterFullscreen) {
-                              // iOS Safari
-                              await (video as any).webkitEnterFullscreen()
-                            } else if ((video as any).mozRequestFullScreen) {
-                              await (video as any).mozRequestFullScreen()
-                            } else if ((video as any).msRequestFullscreen) {
-                              await (video as any).msRequestFullscreen()
+                  <>
+                    <video
+                      ref={videoRef}
+                      className="player-media"
+                      src={buildMediaUrl(selected.path)}
+                      controls
+                      playsInline
+                      autoPlay
+                      loop={loopCurrentItem}
+                      onError={(e) => {
+                        console.error('Video playback error:', e)
+                        const target = e.target as HTMLVideoElement
+                        console.error('Video src:', target.src)
+                        console.error('Error details:', target.error)
+                      }}
+                      onPlay={() => {
+                        // Enter fullscreen when user starts playing (requires user interaction)
+                        if (videoRef.current) {
+                          const video = videoRef.current
+                          const enterFullscreen = async () => {
+                            try {
+                              if (video.requestFullscreen) {
+                                await video.requestFullscreen()
+                              } else if ((video as any).webkitRequestFullscreen) {
+                                await (video as any).webkitRequestFullscreen()
+                              } else if ((video as any).webkitEnterFullscreen) {
+                                // iOS Safari
+                                await (video as any).webkitEnterFullscreen()
+                              } else if ((video as any).mozRequestFullScreen) {
+                                await (video as any).mozRequestFullScreen()
+                              } else if ((video as any).msRequestFullscreen) {
+                                await (video as any).msRequestFullscreen()
+                              }
+                            } catch (error) {
+                              console.log('Fullscreen not available:', error)
                             }
-                          } catch (error) {
-                            console.log('Fullscreen not available:', error)
                           }
+                          enterFullscreen()
                         }
-                        enterFullscreen()
-                      }
-                    }}
-                  />
+                      }}
+                    />
+                    <div className="player-controls">
+                      <button
+                        type="button"
+                        className={`loop-toggle-button ${loopCurrentItem ? 'active' : ''}`}
+                        onClick={() => setLoopCurrentItem(!loopCurrentItem)}
+                        title={loopCurrentItem ? 'Disable loop' : 'Loop forever'}
+                      >
+                        {loopCurrentItem ? '🔄 Loop On' : '▶️ Play Once'}
+                      </button>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <audio
@@ -1841,14 +1918,36 @@ function App() {
                       className="player-media"
                       src={buildMediaUrl(selected.path)}
                       controls
-                      autoPlay={currentPlaylist !== null}
+                      autoPlay={currentPlaylist !== null || loopCurrentItem}
+                      loop={loopCurrentItem && currentPlaylist === null}
                       onError={(e) => {
                         console.error('Audio playback error:', e)
                         const target = e.target as HTMLAudioElement
                         console.error('Audio src:', target.src)
                         console.error('Error details:', target.error)
                       }}
+                      onEnded={() => {
+                        // Handle loop for individual audio items (not in playlist)
+                        if (loopCurrentItem && currentPlaylist === null && audioRef.current) {
+                          audioRef.current.currentTime = 0
+                          audioRef.current.play().catch((err) => {
+                            console.error('Failed to loop audio:', err)
+                          })
+                        }
+                      }}
                     />
+                    {currentPlaylist === null && (
+                      <div className="player-controls">
+                        <button
+                          type="button"
+                          className={`loop-toggle-button ${loopCurrentItem ? 'active' : ''}`}
+                          onClick={() => setLoopCurrentItem(!loopCurrentItem)}
+                          title={loopCurrentItem ? 'Disable loop' : 'Loop forever'}
+                        >
+                          {loopCurrentItem ? '🔄 Loop On' : '▶️ Play Once'}
+                        </button>
+                      </div>
+                    )}
                     {currentPlaylist && (
                       <div className="playlist-info">
                         <div className="playlist-name">

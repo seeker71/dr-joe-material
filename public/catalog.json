@@ -592,16 +592,16 @@
     "description": "Duration: 11:11"
   },
   {
-    "id": "bedtime-breath-of-life-mp4",
+    "id": "bedtime-breath-of-life-mp3",
     "title": "Bedtime Breath of Life",
-    "path": "Bedtime Breath of Life.mp4",
-    "collection": "Bedtime Breath of Life.mp4",
-    "type": "video",
+    "path": "Bedtime Breath of Life.mp3",
+    "collection": "Bedtime Breath of Life.mp3",
+    "type": "audio",
     "metadata": {
       "artist": null,
       "album": null,
       "description": null,
-      "duration": 511.36,
+      "duration": 511.416,
       "year": null,
       "genre": null
     },
