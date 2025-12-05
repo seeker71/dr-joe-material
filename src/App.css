@@ -1224,9 +1224,26 @@ html, body {
   box-sizing: border-box;
 }
 
-.playlist-add-item-button:hover {
+.playlist-add-item-button:hover:not(:disabled) {
   border-color: #4f46e5;
   background-color: rgba(79, 70, 229, 0.2);
+}
+
+.playlist-add-item-in-playlist {
+  background-color: rgba(79, 70, 229, 0.15);
+  border-color: rgba(79, 70, 229, 0.3);
+}
+
+.playlist-add-item-in-playlist:hover {
+  background-color: rgba(79, 70, 229, 0.25);
+  border-color: rgba(79, 70, 229, 0.4);
+}
+
+.playlist-add-item-remove {
+  color: #ef4444;
+  font-size: 1.5rem;
+  font-weight: bold;
+  line-height: 1;
 }
 
 .playlist-add-item-icon {

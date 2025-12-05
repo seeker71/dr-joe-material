@@ -112,6 +112,8 @@ type PlaylistAddFolderProps = {
   searchQuery: string
   expandedFolders: Set<string>
   onToggleFolder: (path: string) => void
+  playlistItemIds: Set<string>
+  onRemoveItem: (itemId: string) => void
 }
 
 function FolderComponent({
@@ -299,6 +301,8 @@ function PlaylistAddFolderComponent({
   searchQuery,
   expandedFolders,
   onToggleFolder,
+  playlistItemIds,
+  onRemoveItem,
 }: PlaylistAddFolderProps) {
   const hasContent = folder.files.length > 0 || folder.subfolders.size > 0
   const isExpanded = expandedFolders.has(folder.fullPath) || level === 0
@@ -387,21 +391,31 @@ function PlaylistAddFolderComponent({
               searchQuery={searchQuery}
               expandedFolders={expandedFolders}
               onToggleFolder={onToggleFolder}
+              playlistItemIds={playlistItemIds}
+              onRemoveItem={onRemoveItem}
             />
           ))}
 
-          {filteredFiles.map((item) => {
+          {filteredFiles.map((item: MediaItem) => {
+            const isAlreadyInPlaylist = playlistItemIds.has(item.id)
             return (
               <button
                 key={item.id}
                 type="button"
-                className="playlist-add-item-button"
-                onClick={() => onAddItem(item.id)}
+                data-item-id={item.id}
+                className={`playlist-add-item-button ${isAlreadyInPlaylist ? 'playlist-add-item-in-playlist' : ''}`}
+                onClick={() => {
+                  if (isAlreadyInPlaylist) {
+                    onRemoveItem(item.id)
+                  } else {
+                    onAddItem(item.id)
+                  }
+                }}
                 style={{
                   paddingLeft: level === 0 ? '0.5rem' : `${Math.min((level + 1) * 1.25 + 0.5, 3)}rem`,
                   maxWidth: '100%'
                 }}
-                title={`Add "${item.title}" to playlist`}
+                title={isAlreadyInPlaylist ? `Remove "${item.title}" from playlist` : `Add "${item.title}" to playlist`}
               >
                 <span className="playlist-add-item-icon">
                   {item.type === 'video' ? '🎬' : '🎵'}
@@ -415,7 +429,9 @@ function PlaylistAddFolderComponent({
                     <span className="playlist-add-item-genre">{item.metadata.genre}</span>
                   )}
                 </div>
-                <span className="playlist-add-item-action">+</span>
+                <span className={`playlist-add-item-action ${isAlreadyInPlaylist ? 'playlist-add-item-remove' : ''}`}>
+                  {isAlreadyInPlaylist ? '−' : '+'}
+                </span>
               </button>
             )
           })}
@@ -475,6 +491,7 @@ function App() {
   const [playlistAddSearch, setPlaylistAddSearch] = useState('')
   const [playlistAddGenre, setPlaylistAddGenre] = useState<string>('')
   const [playlistAddExpandedFolders, setPlaylistAddExpandedFolders] = useState<Set<string>>(new Set())
+  const playlistAddTreeRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const versionCheckIntervalRef = useRef<number | null>(null)
@@ -1032,6 +1049,54 @@ function App() {
     setPlaylistAddExpandedFolders(new Set())
   }
 
+  // Auto-scroll to last playlist item in add section
+  useEffect(() => {
+    if (editingPlaylist && editingPlaylist.items.length > 0 && playlistAddTreeRef.current) {
+      // Find the last item in the playlist
+      const lastItemId = editingPlaylist.items[editingPlaylist.items.length - 1].itemId
+      
+      // Wait for DOM to update, then find and scroll to the item
+      setTimeout(() => {
+        const lastItemElement = playlistAddTreeRef.current?.querySelector(
+          `[data-item-id="${lastItemId}"]`
+        ) as HTMLElement
+        
+        if (lastItemElement) {
+          // Expand parent folders if needed
+          let parent = lastItemElement.parentElement
+          const pathsToExpand = new Set<string>()
+          while (parent && parent !== playlistAddTreeRef.current) {
+            if (parent.classList.contains('folder-container')) {
+              const folderPath = parent.getAttribute('data-folder-path')
+              if (folderPath) {
+                pathsToExpand.add(folderPath)
+              }
+            }
+            parent = parent.parentElement
+          }
+          
+          if (pathsToExpand.size > 0) {
+            setPlaylistAddExpandedFolders((prev) => {
+              const next = new Set(prev)
+              pathsToExpand.forEach(path => next.add(path))
+              return next
+            })
+          }
+          
+          // Scroll to the item after folders are expanded
+          setTimeout(() => {
+            const updatedElement = playlistAddTreeRef.current?.querySelector(
+              `[data-item-id="${lastItemId}"]`
+            ) as HTMLElement
+            if (updatedElement) {
+              updatedElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+          }, 200)
+        }
+      }, 300)
+    }
+  }, [editingPlaylist?.id, editingPlaylist?.items.length])
+
   const handleSavePlaylist = async () => {
     if (editingPlaylist) {
       if (editingPlaylist.shared) {
@@ -1050,18 +1115,17 @@ function App() {
   }
 
 
-  // Get available items for adding to playlist (items not already in the playlist)
-  const getAvailableItemsForPlaylist = (playlist: Playlist) => {
-    const playlistItemIds = new Set(playlist.items.map((item) => item.itemId))
-    return items.filter((item) => !playlistItemIds.has(item.id))
+  // Get all items (including those already in playlist) for the add section
+  const getAllItemsForPlaylistEditor = () => {
+    return items // Show all items, not just available ones
   }
 
 
-  // Get unique genres from available items
-  const getAvailableGenres = (playlist: Playlist) => {
-    const availableItems = getAvailableItemsForPlaylist(playlist)
+  // Get unique genres from all items
+  const getAvailableGenres = () => {
+    const allItems = getAllItemsForPlaylistEditor()
     const genres = new Set<string>()
-    availableItems.forEach((item) => {
+    allItems.forEach((item) => {
       if (item.metadata?.genre) {
         genres.add(item.metadata.genre)
       }
@@ -1292,22 +1356,22 @@ function App() {
                                 if (node.fullPath) allPaths.add(node.fullPath)
                                 node.subfolders.forEach(collectPaths)
                               }
-                              const availableItems = getAvailableItemsForPlaylist(editingPlaylist)
-                              const filteredItems = filterItemsForPlaylist(availableItems, e.target.value, playlistAddGenre)
+                              const allItems = getAllItemsForPlaylistEditor()
+                              const filteredItems = filterItemsForPlaylist(allItems, e.target.value, playlistAddGenre)
                               const tree = buildFolderTree(filteredItems)
                               collectPaths(tree)
                               setPlaylistAddExpandedFolders(allPaths)
                             }
                           }}
                         />
-                        {getAvailableGenres(editingPlaylist).length > 0 && (
+                        {getAvailableGenres().length > 0 && (
                           <select
                             className="playlist-add-genre-filter"
                             value={playlistAddGenre}
                             onChange={(e) => setPlaylistAddGenre(e.target.value)}
                           >
                             <option value="">All Genres</option>
-                            {getAvailableGenres(editingPlaylist).map((genre) => (
+                            {getAvailableGenres().map((genre) => (
                               <option key={genre} value={genre}>
                                 {genre}
                               </option>
@@ -1317,18 +1381,16 @@ function App() {
                       </div>
 
                       {/* Tree View of Available Items */}
-                      <div className="playlist-add-items-tree">
+                      <div className="playlist-add-items-tree" ref={playlistAddTreeRef}>
                         {(() => {
-                          const availableItems = getAvailableItemsForPlaylist(editingPlaylist)
-                          const filteredItems = filterItemsForPlaylist(availableItems, playlistAddSearch, playlistAddGenre)
+                          const allItems = getAllItemsForPlaylistEditor()
+                          const filteredItems = filterItemsForPlaylist(allItems, playlistAddSearch, playlistAddGenre)
                           const filteredTree = buildFolderTree(filteredItems)
                           
                           if (filteredItems.length === 0) {
                             return (
                               <div className="playlist-add-empty">
-                                {availableItems.length === 0
-                                  ? 'All available items are already in this playlist.'
-                                  : 'No items match your search or filter.'}
+                                No items match your search or filter.
                               </div>
                             )
                           }
@@ -1351,6 +1413,13 @@ function App() {
                                   }
                                   return next
                                 })
+                              }}
+                              playlistItemIds={new Set(editingPlaylist.items.map(item => item.itemId))}
+                              onRemoveItem={(itemId: string) => {
+                                const playlistItemIndex = editingPlaylist.items.findIndex(pi => pi.itemId === itemId)
+                                if (playlistItemIndex >= 0) {
+                                  handleRemoveItemFromPlaylist(editingPlaylist.id, playlistItemIndex, editingPlaylist.shared)
+                                }
                               }}
                             />
                           )
