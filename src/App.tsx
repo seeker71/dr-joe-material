@@ -724,6 +724,9 @@ function App() {
     setPlaylists([...playlists, newPlaylist])
     setEditingPlaylist(newPlaylist)
     setPlaylistManagerTab('my')
+    setPlaylistAddSearch('')
+    setPlaylistAddGenre('')
+    setPlaylistAddExpandedFolders(new Set())
     setShowPlaylistManager(true)
   }
 
@@ -1024,6 +1027,9 @@ function App() {
     setShowPlaylistManager(false)
     setEditingPlaylist(null)
     setDraggedItemIndex(null)
+    setPlaylistAddSearch('')
+    setPlaylistAddGenre('')
+    setPlaylistAddExpandedFolders(new Set())
   }
 
   const handleSavePlaylist = async () => {
@@ -1382,6 +1388,9 @@ function App() {
                                 onClick={() => {
                                   setEditingPlaylist(playlist)
                                   setPlaylistManagerTab('my')
+                                  setPlaylistAddSearch('')
+                                  setPlaylistAddGenre('')
+                                  setPlaylistAddExpandedFolders(new Set())
                                 }}
                                 title="Edit playlist"
                               >
@@ -1435,6 +1444,9 @@ function App() {
                                 onClick={() => {
                                   setEditingPlaylist(playlist)
                                   setPlaylistManagerTab('shared')
+                                  setPlaylistAddSearch('')
+                                  setPlaylistAddGenre('')
+                                  setPlaylistAddExpandedFolders(new Set())
                                 }}
                                 title="Edit playlist"
                               >

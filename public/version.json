@@ -1,12 +1,11 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "updated": "2025-01-27T00:00:00Z",
   "changelog": [
-    "Added favorites feature - save your favorite meditations with a tap",
-    "Added playlist support - seamless playback of multiple tracks",
-    "Added 'Morning Breathwork' playlist with 3 guided breathwork tracks",
-    "Added automatic update detection with changelog notifications",
-    "Improved user experience with feature announcements"
+    "Enhanced playlist editor with tree view - see folder structure when adding items",
+    "Added search functionality to playlist editor - search by folder or item name",
+    "Added genre filtering to playlist editor - filter available items by genre",
+    "Improved playlist add items interface with better organization and context"
   ]
 }
 
