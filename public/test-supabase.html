@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supabase Setup Validation</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 2rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      line-height: 1.6;
+    }
+    h1 {
+      color: #818cf8;
+      border-bottom: 2px solid #4f46e5;
+      padding-bottom: 0.5rem;
+    }
+    .test-section {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(79, 70, 229, 0.3);
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .status {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 0.25rem;
+      font-weight: 600;
+      font-size: 0.85rem;
+      margin-left: 0.5rem;
+    }
+    .status.success {
+      background: #10b981;
+      color: white;
+    }
+    .status.error {
+      background: #ef4444;
+      color: white;
+    }
+    .status.warning {
+      background: #f59e0b;
+      color: white;
+    }
+    .status.info {
+      background: #3b82f6;
+      color: white;
+    }
+    button {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.3), rgba(79, 70, 229, 0.2));
+      border: 1px solid rgba(79, 70, 229, 0.5);
+      color: #cbd5f5;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin: 0.5rem 0.5rem 0.5rem 0;
+    }
+    button:hover {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(79, 70, 229, 0.3));
+      transform: translateY(-1px);
+    }
+    pre {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      margin: 1rem 0;
+    }
+    .check-item {
+      margin: 0.75rem 0;
+      padding: 0.75rem;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 0.25rem;
+    }
+    .check-label {
+      font-weight: 600;
+      color: #cbd5f5;
+    }
+    .check-value {
+      color: #9ca3af;
+      margin-top: 0.25rem;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.9rem;
+    }
+    .instructions {
+      background: rgba(79, 70, 229, 0.1);
+      border-left: 3px solid #4f46e5;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 0.25rem;
+    }
+    .instructions h3 {
+      margin-top: 0;
+      color: #818cf8;
+    }
+    .instructions ol {
+      margin: 0.5rem 0;
+      padding-left: 1.5rem;
+    }
+    .instructions li {
+      margin: 0.5rem 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Supabase Setup Validation</h1>
+  
+  <div class="test-section">
+    <h2>Test Results</h2>
+    <button onclick="runValidation()">🔄 Run Validation Test</button>
+    <button onclick="testReadWrite()">📝 Test Read/Write</button>
+    <div id="results"></div>
+  </div>
+
+  <div class="instructions">
+    <h3>What This Tests:</h3>
+    <ol>
+      <li><strong>Environment Variables</strong> - Checks if SUPABASE_URL and SUPABASE_ANON_KEY are set</li>
+      <li><strong>Supabase Connection</strong> - Verifies the connection to your Supabase project</li>
+      <li><strong>Database Table</strong> - Confirms the shared_playlists table exists</li>
+      <li><strong>Read/Write Access</strong> - Tests creating and reading a playlist</li>
+    </ol>
+  </div>
+
+  <div class="test-section">
+    <h2>Next Steps</h2>
+    <p>If all tests pass, your Supabase setup is working correctly! If any tests fail:</p>
+    <ol>
+      <li>Check the error messages below</li>
+      <li>Verify environment variables in Netlify: <strong>Site settings → Environment variables</strong></li>
+      <li>Ensure the database table was created (see QUICK_SETUP.md)</li>
+      <li>Check Netlify Function logs: <strong>Functions → shared-playlists → Logs</strong></li>
+    </ol>
+  </div>
+
+  <script>
+    async function runValidation() {
+      const resultsDiv = document.getElementById('results')
+      resultsDiv.innerHTML = '<p>Running validation...</p>'
+      
+      try {
+        const response = await fetch('/api/shared-playlists/validate')
+        const data = await response.json()
+        
+        let html = '<div class="test-section">'
+        html += '<h3>Configuration Check</h3>'
+        
+        // Supabase URL
+        html += '<div class="check-item">'
+        html += `<div class="check-label">Supabase URL: <span class="status ${data.supabaseUrl !== 'NOT SET' ? 'success' : 'error'}">${data.supabaseUrl !== 'NOT SET' ? 'SET' : 'NOT SET'}</span></div>`
+        html += `<div class="check-value">${data.supabaseUrl}</div>`
+        html += '</div>'
+        
+        // Supabase Key
+        html += '<div class="check-item">'
+        html += `<div class="check-label">Supabase Key: <span class="status ${data.supabaseKeyPresent ? 'success' : 'error'}">${data.supabaseKeyPresent ? 'PRESENT' : 'MISSING'}</span></div>`
+        html += `<div class="check-value">Length: ${data.supabaseKeyLength} characters</div>`
+        if (data.supabaseKeyLength > 0 && data.supabaseKeyLength < 50) {
+          html += '<div class="check-value" style="color: #f59e0b;">⚠️ Key seems too short. Verify you\'re using the anon/public key.</div>'
+        }
+        html += '</div>'
+        
+        // Supabase Configured
+        html += '<div class="check-item">'
+        html += `<div class="check-label">Supabase Client: <span class="status ${data.supabaseConfigured ? 'success' : 'error'}">${data.supabaseConfigured ? 'INITIALIZED' : 'NOT INITIALIZED'}</span></div>`
+        html += '</div>'
+        
+        html += '<h3>Connection Test</h3>'
+        
+        // Connection Test
+        html += '<div class="check-item">'
+        const connStatus = data.connectionTest === 'SUCCESS' ? 'success' : 
+                          data.connectionTest === 'FAILED' ? 'error' : 'warning'
+        html += `<div class="check-label">Connection: <span class="status ${connStatus}">${data.connectionTest}</span></div>`
+        if (data.connectionError) {
+          html += `<div class="check-value" style="color: #ef4444;">Error: ${data.connectionError}</div>`
+        }
+        html += '</div>'
+        
+        // Table Exists
+        html += '<div class="check-item">'
+        html += `<div class="check-label">Table Exists: <span class="status ${data.tableExists ? 'success' : 'error'}">${data.tableExists ? 'YES' : 'NO'}</span></div>`
+        if (!data.tableExists) {
+          html += '<div class="check-value" style="color: #ef4444;">⚠️ The shared_playlists table doesn\'t exist. Run the SQL script from QUICK_SETUP.md</div>'
+        }
+        html += '</div>'
+        
+        html += '<h3>Raw Response</h3>'
+        html += '<pre>' + JSON.stringify(data, null, 2) + '</pre>'
+        html += '</div>'
+        
+        resultsDiv.innerHTML = html
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="test-section">
+            <h3 style="color: #ef4444;">Error</h3>
+            <p>Failed to connect to validation endpoint:</p>
+            <pre>${error.message}</pre>
+            <p>Make sure:</p>
+            <ul>
+              <li>The Netlify function is deployed</li>
+              <li>You're accessing this page from your deployed site (not localhost)</li>
+              <li>The function file exists at netlify/functions/shared-playlists.js</li>
+            </ul>
+          </div>
+        `
+      }
+    }
+
+    async function testReadWrite() {
+      const resultsDiv = document.getElementById('results')
+      resultsDiv.innerHTML = '<p>Testing read/write operations...</p>'
+      
+      try {
+        // Test write
+        const testPlaylist = {
+          id: `test-${Date.now()}`,
+          name: 'Test Playlist - ' + new Date().toLocaleTimeString(),
+          items: [
+            { itemId: 'test-item-1', loop: false }
+          ],
+          shared: true,
+          shareId: `test-share-${Date.now()}`
+        }
+        
+        const writeResponse = await fetch('/api/shared-playlists', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(testPlaylist),
+        })
+        
+        let html = '<div class="test-section">'
+        html += '<h3>Read/Write Test</h3>'
+        
+        if (writeResponse.ok) {
+          html += '<div class="check-item">'
+          html += '<div class="check-label">Write Test: <span class="status success">SUCCESS</span></div>'
+          html += '<div class="check-value">Test playlist created successfully</div>'
+          html += '</div>'
+          
+          // Test read
+          const readResponse = await fetch('/api/shared-playlists')
+          const playlists = await readResponse.json()
+          const found = playlists.find(p => p.id === testPlaylist.id)
+          
+          html += '<div class="check-item">'
+          html += `<div class="check-label">Read Test: <span class="status ${found ? 'success' : 'error'}">${found ? 'SUCCESS' : 'FAILED'}</span></div>`
+          if (found) {
+            html += '<div class="check-value">Test playlist found in database</div>'
+          } else {
+            html += '<div class="check-value" style="color: #ef4444;">Test playlist not found after creation</div>'
+          }
+          html += '</div>'
+          
+          // Clean up test playlist
+          await fetch(`/api/shared-playlists/${testPlaylist.id}`, {
+            method: 'DELETE',
+          })
+          html += '<div class="check-item">'
+          html += '<div class="check-label">Cleanup: <span class="status success">DONE</span></div>'
+          html += '<div class="check-value">Test playlist deleted</div>'
+          html += '</div>'
+        } else {
+          const errorData = await writeResponse.json()
+          html += '<div class="check-item">'
+          html += '<div class="check-label">Write Test: <span class="status error">FAILED</span></div>'
+          html += `<div class="check-value" style="color: #ef4444;">${errorData.error || 'Unknown error'}</div>`
+          html += '</div>'
+        }
+        
+        html += '</div>'
+        resultsDiv.innerHTML = html
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div class="test-section">
+            <h3 style="color: #ef4444;">Error</h3>
+            <pre>${error.message}</pre>
+          </div>
+        `
+      }
+    }
+
+    // Auto-run validation on page load
+    window.addEventListener('load', () => {
+      runValidation()
+    })
+  </script>
+</body>
+</html>
+

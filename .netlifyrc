@@ -1,0 +1,8 @@
+# Netlify configuration file
+# This file helps Netlify CLI know which site to deploy to
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+

@@ -1,0 +1,12 @@
+{
+  "version": "1.1.0",
+  "updated": "2025-01-27T00:00:00Z",
+  "changelog": [
+    "Added favorites feature - save your favorite meditations with a tap",
+    "Added playlist support - seamless playback of multiple tracks",
+    "Added 'Morning Breathwork' playlist with 3 guided breathwork tracks",
+    "Added automatic update detection with changelog notifications",
+    "Improved user experience with feature announcements"
+  ]
+}
+
