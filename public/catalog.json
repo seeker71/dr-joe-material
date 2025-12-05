@@ -576,6 +576,38 @@
     "description": "Duration: 31:44"
   },
   {
+    "id": "bedtime-breath-of-life-m4a",
+    "title": "Bedtime Breath of Life",
+    "path": "Bedtime Breath of Life.m4a",
+    "collection": "Bedtime Breath of Life.m4a",
+    "type": "audio",
+    "metadata": {
+      "artist": null,
+      "album": null,
+      "description": null,
+      "duration": 671.424,
+      "year": null,
+      "genre": null
+    },
+    "description": "Duration: 11:11"
+  },
+  {
+    "id": "bedtime-breath-of-life-mp4",
+    "title": "Bedtime Breath of Life",
+    "path": "Bedtime Breath of Life.mp4",
+    "collection": "Bedtime Breath of Life.mp4",
+    "type": "video",
+    "metadata": {
+      "artist": null,
+      "album": null,
+      "description": null,
+      "duration": 511.36,
+      "year": null,
+      "genre": null
+    },
+    "description": "Duration: 8:31"
+  },
+  {
     "id": "breaking-the-habit-of-being-yourself-disk-1-track-1-mp3",
     "title": "Disk 1 Track 1",
     "path": "Breaking the Habit of Being Yourself/Disk 1 - Track 1.mp3",
