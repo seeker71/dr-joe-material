@@ -1178,6 +1178,24 @@ function App() {
                     </button>
                   </div>
 
+                  {/* Action Buttons - Moved Above Content */}
+                  <div className="playlist-editor-actions">
+                    <button
+                      type="button"
+                      className="update-dismiss-button"
+                      onClick={handleClosePlaylistManager}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="update-refresh-button"
+                      onClick={handleSavePlaylist}
+                    >
+                      Save
+                    </button>
+                  </div>
+
                   <div className="playlist-items-section">
                     <div className="playlist-items-label">Items ({editingPlaylist.items.length}):</div>
                     {editingPlaylist.items.length > 0 ? (
@@ -1491,24 +1509,7 @@ function App() {
               )}
             </div>
             <div className="update-modal-footer">
-              {editingPlaylist ? (
-                <>
-                  <button
-                    type="button"
-                    className="update-dismiss-button"
-                    onClick={handleClosePlaylistManager}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="update-refresh-button"
-                    onClick={handleSavePlaylist}
-                  >
-                    Save
-                  </button>
-                </>
-              ) : (
+              {!editingPlaylist && (
                 <>
                   <button
                     type="button"
