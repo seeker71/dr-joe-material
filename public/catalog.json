@@ -577,7 +577,7 @@
   },
   {
     "id": "bedtime-breath-of-life-m4a",
-    "title": "Bedtime Breath of Life",
+    "title": "Bedtime Breath of Life with Introduction",
     "path": "Bedtime Breath of Life.m4a",
     "collection": "Bedtime Breath of Life.m4a",
     "type": "audio",
@@ -587,7 +587,7 @@
       "description": null,
       "duration": 671.424,
       "year": null,
-      "genre": null
+      "genre": "Meditation"
     },
     "description": "Duration: 11:11"
   },
@@ -603,7 +603,7 @@
       "description": null,
       "duration": 511.416,
       "year": null,
-      "genre": null
+      "genre": "Meditation"
     },
     "description": "Duration: 8:31"
   },

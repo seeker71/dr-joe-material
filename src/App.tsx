@@ -1794,7 +1794,19 @@ function App() {
                   title={`Play ${playlist.name} (${playlist.items.length} items)`}
                   disabled={playlist.items.length === 0}
                 >
-                  ▶️ {playlist.name} ({playlist.items.length})
+                  <span>▶️ {playlist.name} ({playlist.items.length})</span>
+                  {(() => {
+                    const totalDuration = playlist.items.reduce((sum, playlistItem) => {
+                      const item = items.find(i => i.id === playlistItem.itemId)
+                      if (item?.metadata?.duration) {
+                        return sum + item.metadata.duration
+                      }
+                      return sum
+                    }, 0)
+                    return totalDuration > 0 ? (
+                      <span className="playlist-button-duration">{formatDuration(totalDuration)}</span>
+                    ) : null
+                  })()}
                   {playlist.shared && <span className="playlist-shared-badge">🌐</span>}
                 </button>
               ))}
@@ -1973,21 +1985,62 @@ function App() {
                     )}
                   </>
                 )}
-                <div className="player-url-debug">
-                  <details style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '0.5rem' }}>
-                    <summary style={{ cursor: 'pointer', marginBottom: '0.25rem' }}>Debug Info</summary>
-                    <div style={{ wordBreak: 'break-all', fontSize: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                      <div><strong>URL:</strong> {buildMediaUrl(selected.path)}</div>
+                
+                {/* Clean Metadata Section - Spotify/Google Music style */}
+                <div className="player-metadata">
+                  <div className="player-metadata-grid">
+                    {selected.metadata?.artist && (
+                      <div className="player-metadata-item">
+                        <span className="player-metadata-label">Artist</span>
+                        <span className="player-metadata-value">{selected.metadata.artist}</span>
+                      </div>
+                    )}
+                    {selected.metadata?.album && (
+                      <div className="player-metadata-item">
+                        <span className="player-metadata-label">Album</span>
+                        <span className="player-metadata-value">{selected.metadata.album}</span>
+                      </div>
+                    )}
+                    {selected.metadata?.duration && (
+                      <div className="player-metadata-item">
+                        <span className="player-metadata-label">Duration</span>
+                        <span className="player-metadata-value">{formatDuration(selected.metadata.duration)}</span>
+                      </div>
+                    )}
+                    {selected.metadata?.year && (
+                      <div className="player-metadata-item">
+                        <span className="player-metadata-label">Year</span>
+                        <span className="player-metadata-value">{selected.metadata.year}</span>
+                      </div>
+                    )}
+                    {selected.metadata?.genre && (
+                      <div className="player-metadata-item">
+                        <span className="player-metadata-label">Genre</span>
+                        <span className="player-metadata-value">{selected.metadata.genre}</span>
+                      </div>
+                    )}
+                    <div className="player-metadata-item">
+                      <span className="player-metadata-label">Type</span>
+                      <span className="player-metadata-value">{selected.type === 'video' ? 'Video' : 'Audio'}</span>
+                    </div>
+                    <div className="player-metadata-item">
+                      <span className="player-metadata-label">Collection</span>
+                      <span className="player-metadata-value">{selected.collection}</span>
+                    </div>
+                  </div>
+                  
+                  {selected.metadata?.description && (
+                    <div className="player-description">
+                      <span className="player-description-label">Description</span>
+                      <p className="player-description-text">{selected.metadata.description}</p>
+                    </div>
+                  )}
+                  
+                  <details className="player-debug-details">
+                    <summary>Debug Info</summary>
+                    <div className="player-debug-content">
                       <div><strong>Path:</strong> {selected.path}</div>
-                      <div><strong>Base URL:</strong> {MEDIA_BASE_URL || 'NOT SET'}</div>
-                      <a 
-                        href={buildMediaUrl(selected.path)} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ color: '#818cf8', textDecoration: 'underline', marginTop: '0.25rem' }}
-                      >
-                        Test URL directly ↗
-                      </a>
+                      <div><strong>URL:</strong> <a href={buildMediaUrl(selected.path)} target="_blank" rel="noopener noreferrer">{buildMediaUrl(selected.path)}</a></div>
                     </div>
                   </details>
                 </div>
