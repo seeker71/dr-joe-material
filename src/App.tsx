@@ -1847,6 +1847,15 @@ function App() {
               <div className="playlist-manager-item-actions">
                 <button
                   type="button"
+                  className="playlist-manager-play-button"
+                  onClick={() => handlePlayPlaylist(playlist)}
+                  disabled={playlist.items.length === 0}
+                  title="Play playlist"
+                >
+                  ▶️
+                </button>
+                <button
+                  type="button"
                   className="playlist-manager-edit-button"
                   onClick={() => {
                     setEditingPlaylist(playlist)
@@ -1858,7 +1867,7 @@ function App() {
                   }}
                   title="Edit playlist"
                 >
-                  ✏️ Edit
+                  ✏️
                 </button>
                 <button
                   type="button"
@@ -1866,7 +1875,7 @@ function App() {
                   onClick={() => handleSharePlaylist(playlist)}
                   title={playlist.shared ? 'Unshare playlist' : 'Share playlist'}
                 >
-                  {playlist.shared ? '🔒 Unshare' : '🌐 Share'}
+                  {playlist.shared ? '🔒' : '🌐'}
                 </button>
                 <button
                   type="button"
