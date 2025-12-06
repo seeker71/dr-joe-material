@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import './App.css'
 
 type MediaType = 'video' | 'audio'
@@ -45,6 +45,16 @@ function formatDuration(seconds: number | null | undefined): string {
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`
+}
+
+function formatClockTime(seconds: number | null | undefined): string {
+  if (!seconds || Number.isNaN(seconds) || seconds < 0) {
+    return '0:00'
+  }
+  const whole = Math.floor(seconds)
+  const minutes = Math.floor(whole / 60)
+  const secs = whole % 60
   return `${minutes}:${secs.toString().padStart(2, '0')}`
 }
 
@@ -97,6 +107,7 @@ type Playlist = {
   shared: boolean // Whether this playlist is shared
   shareId?: string // Unique ID for sharing (generated when shared)
   ownerId?: string // ID of the user who created/shared this (for shared playlists)
+  coverEmoji?: string
 }
 
 type VersionInfo = {
@@ -115,6 +126,7 @@ type FolderProps = {
   favorites: Set<string>
   onToggleFavorite: (itemId: string) => void
   onPlayPlaylist?: (playlist: Playlist) => void
+  selectedItemId?: string | null
 }
 
 type PlaylistAddFolderProps = {
@@ -139,6 +151,7 @@ function FolderComponent({
   favorites,
   onToggleFavorite,
   onPlayPlaylist,
+  selectedItemId,
 }: FolderProps) {
   const hasContent = folder.files.length > 0 || folder.subfolders.size > 0
   const isExpanded = expandedFolders.has(folder.fullPath) || level === 0
@@ -241,16 +254,18 @@ function FolderComponent({
               favorites={favorites}
               onToggleFavorite={onToggleFavorite}
               onPlayPlaylist={onPlayPlaylist}
+              selectedItemId={selectedItemId}
             />
           ))}
 
           {filteredFiles.map((item) => {
             const isFavorite = favorites.has(item.id)
+            const isSelected = selectedItemId === item.id
             return (
               <button
                 key={item.id}
                 type="button"
-                className="media-card"
+                className={`media-card ${isSelected ? 'media-card-active' : ''}`}
                 onClick={() => onSelectItem(item)}
                 style={{ 
                   paddingLeft: level === 0 ? '0.5rem' : `${Math.min((level + 1) * 1.25 + 0.5, 3)}rem`,
@@ -264,14 +279,9 @@ function FolderComponent({
                   <div className="media-title">
                     {item.title}
                   </div>
-                  {(item.metadata?.album || item.description) && (
+                  {item.metadata?.album && (
                     <div className="media-album-description">
-                      {item.metadata?.album && (
-                        <span className="media-album">{item.metadata.album}</span>
-                      )}
-                      {item.description && !item.metadata?.album && (
-                        <span className="media-description">{item.description}</span>
-                      )}
+                      <span className="media-album">{item.metadata.album}</span>
                     </div>
                   )}
                   <div className="media-meta-row">
@@ -457,62 +467,79 @@ function PlaylistAddFolderComponent({
   )
 }
 
-// Default playlist (will be migrated to localStorage)
-const DEFAULT_PLAYLIST: Playlist = {
-  id: 'morning-breathwork',
-  name: 'Morning Breathwork',
-  items: [
-    {
-      itemId: 'inspire-vol-2-10-more-tracks-to-master-the-breath-02-eng-inspire-v2-warmth-of-the-suns-rays-1-mp3',
-      loop: false,
-    },
-    {
-      itemId: 'inspire-vol-2-10-more-tracks-to-master-the-breath-03-eng-inspire-v2-olorum-1-mp3',
-      loop: false,
-    },
-    {
-      itemId: 'inspire-vol-2-10-more-tracks-to-master-the-breath-04-eng-inspire-v2-riding-through-1-mp3',
-      loop: false,
-    },
-  ],
-  shared: false,
-}
-
 // Generate a unique share ID
 const generateShareId = (): string => {
   return `share-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 }
 
+const PLAYLIST_COVER_EMOJIS = ['🌅', '🌿', '🌀', '✨', '🔥', '💜', '🌊', '🌸']
+const MORNING_COLLECTION = 'Inspire, Vol 2 – 10 More Tracks to Master the Breath'
+const MORNING_PLAYLIST_ID = 'morning-breathwork'
+const MORNING_PLAYLIST_NAME = 'Morning Breathwork'
+
 function App() {
   const [items, setItems] = useState<MediaItem[]>([])
   const [query, setQuery] = useState('')
+  const [activeTab, setActiveTab] = useState<'home' | 'playlists' | 'favorites' | 'shared' | 'search'>('home')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false)
   const [loading, setLoading] = useState(true)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [sharedPlaylists, setSharedPlaylists] = useState<Playlist[]>([])
+  const [sharedPlaylistsLoaded, setSharedPlaylistsLoaded] = useState(false)
   const [currentPlaylist, setCurrentPlaylist] = useState<Playlist | null>(null)
   const [playlistIndex, setPlaylistIndex] = useState(0)
-  const [showFavorites, setShowFavorites] = useState(false)
-  const [showPlaylistManager, setShowPlaylistManager] = useState(false)
   const [playlistManagerTab, setPlaylistManagerTab] = useState<'my' | 'shared'>('my')
   const [editingPlaylist, setEditingPlaylist] = useState<Playlist | null>(null)
   const [updateAvailable, setUpdateAvailable] = useState<VersionInfo | null>(null)
   const [currentVersion, setCurrentVersion] = useState<string | null>(null)
   const [showFeatureAnnouncement, setShowFeatureAnnouncement] = useState(false)
   const [draggedItemIndex, setDraggedItemIndex] = useState<number | null>(null)
-  const [showImportModal, setShowImportModal] = useState(false)
+  const [showImportPanel, setShowImportPanel] = useState(false)
   const [importData, setImportData] = useState('')
   const [playlistAddSearch, setPlaylistAddSearch] = useState('')
   const [playlistAddGenre, setPlaylistAddGenre] = useState<string>('')
   const [playlistAddExpandedFolders, setPlaylistAddExpandedFolders] = useState<Set<string>>(new Set())
-  const [loopCurrentItem, setLoopCurrentItem] = useState(false)
+  const [loopMode, setLoopMode] = useState<'none' | 'all' | 'one'>('none')
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playlistEditorStep, setPlaylistEditorStep] = useState<'overview' | 'items' | 'share'>('overview')
+  const [playbackPosition, setPlaybackPosition] = useState(0)
+  const [playbackDuration, setPlaybackDuration] = useState(0)
+  const [shouldAutoPlay, setShouldAutoPlay] = useState(false)
+  const [hasEnsuredMorningPlaylist, setHasEnsuredMorningPlaylist] = useState(false)
   const playlistAddTreeRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const versionCheckIntervalRef = useRef<number | null>(null)
   const currentVersionRef = useRef<string | null>(null)
+  const playlistEditorSteps = [
+    { id: 'overview', label: 'Overview', description: 'Set artwork & basics' },
+    { id: 'items', label: 'Items', description: 'Sequence the tracks' },
+    { id: 'share', label: 'Share', description: 'Visibility & Supabase' },
+  ] as const
+  const supabaseConfigured = Boolean(
+    import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_ANON_KEY
+  )
+  const ensuringMorningRef = useRef(false)
+
+  // Fetch shared playlists from server
+  const fetchSharedPlaylists = useCallback(async () => {
+    try {
+      const response = await fetch('/api/shared-playlists')
+      if (response.ok) {
+        const data = await response.json()
+        setSharedPlaylists(data)
+      } else {
+        console.error('Failed to fetch shared playlists')
+      }
+    } catch (err) {
+      console.error('Error fetching shared playlists:', err)
+    } finally {
+      setSharedPlaylistsLoaded(true)
+    }
+  }, [])
 
   // Load favorites, playlists, current version, and feature announcement status from localStorage
   useEffect(() => {
@@ -533,10 +560,6 @@ function App() {
           shared: p.shared ?? false,
         }))
         setPlaylists(migrated)
-      } else {
-        // Migrate default playlist to localStorage
-        setPlaylists([DEFAULT_PLAYLIST])
-        localStorage.setItem('drjoe-playlists', JSON.stringify([DEFAULT_PLAYLIST]))
       }
 
       // Load shared playlists from server API
@@ -557,7 +580,7 @@ function App() {
     } catch (err) {
       console.error('Failed to load favorites/playlists/version', err)
     }
-  }, [])
+  }, [fetchSharedPlaylists])
 
   // Update ref when currentVersion changes
   useEffect(() => {
@@ -641,21 +664,6 @@ function App() {
     }
   }, [playlists])
 
-  // Fetch shared playlists from server
-  const fetchSharedPlaylists = async () => {
-    try {
-      const response = await fetch('/api/shared-playlists')
-      if (response.ok) {
-        const data = await response.json()
-        setSharedPlaylists(data)
-      } else {
-        console.error('Failed to fetch shared playlists')
-      }
-    } catch (err) {
-      console.error('Error fetching shared playlists:', err)
-    }
-  }
-
   // Save shared playlist to server
   const saveSharedPlaylist = async (playlist: Playlist): Promise<boolean> => {
     try {
@@ -714,9 +722,33 @@ function App() {
 
   const folderTree = useMemo(() => buildFolderTree(items), [items])
 
-  // Reset loop when selecting a new item
   useEffect(() => {
-    setLoopCurrentItem(false)
+    const audio = audioRef.current
+    if (!audio) {
+      setPlaybackPosition(0)
+      setPlaybackDuration(0)
+      return
+    }
+
+    const handleTimeUpdate = () => {
+      setPlaybackPosition(audio.currentTime || 0)
+      setPlaybackDuration(audio.duration || 0)
+    }
+
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    audio.addEventListener('loadedmetadata', handleTimeUpdate)
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      audio.removeEventListener('loadedmetadata', handleTimeUpdate)
+    }
+  }, [selectedId])
+
+
+  useEffect(() => {
+    if (!selectedId) {
+      setIsFullPlayerVisible(false)
+    }
   }, [selectedId])
 
   // Build favorites folder
@@ -746,10 +778,73 @@ function App() {
     if (playlist.items.length === 0) return
     setCurrentPlaylist(playlist)
     setPlaylistIndex(0)
+    setIsFullPlayerVisible(false)
+    setShouldAutoPlay(true)
     // Find the first item and play it
     const firstItem = items.find((item) => item.id === playlist.items[0].itemId)
     if (firstItem) {
       setSelectedId(firstItem.id)
+    }
+  }
+
+  const goToPlaylistIndex = (targetIndex: number) => {
+    if (!currentPlaylist) return false
+    if (targetIndex < 0 || targetIndex >= currentPlaylist.items.length) return false
+    const targetItem = items.find((item) => item.id === currentPlaylist.items[targetIndex].itemId)
+    if (!targetItem) return false
+    setPlaylistIndex(targetIndex)
+    setSelectedId(targetItem.id)
+    setShouldAutoPlay(true)
+    return true
+  }
+
+  const goToLibraryIndex = (targetIndex: number) => {
+    if (targetIndex < 0 || targetIndex >= orderedItems.length) return false
+    const targetItem = orderedItems[targetIndex]
+    if (!targetItem) return false
+    setCurrentPlaylist(null)
+    setPlaylistIndex(0)
+    setSelectedId(targetItem.id)
+    setShouldAutoPlay(true)
+    return true
+  }
+
+  const handleSkipNext = () => {
+    if (!selected) return
+    if (currentPlaylist) {
+      if (playlistIndex < currentPlaylist.items.length - 1) {
+        goToPlaylistIndex(playlistIndex + 1)
+      } else if (loopMode === 'all') {
+        goToPlaylistIndex(0)
+      }
+    } else {
+      if (libraryIndex < orderedItems.length - 1) {
+        goToLibraryIndex(libraryIndex + 1)
+      } else if (loopMode === 'all') {
+        goToLibraryIndex(0)
+      }
+    }
+  }
+
+  const handleSkipPrevious = () => {
+    if (!selected) return
+    if (selected.type === 'audio' && audioRef.current && audioRef.current.currentTime > 3) {
+      audioRef.current.currentTime = 0
+      audioRef.current.play().catch((err) => console.error('Failed to restart audio:', err))
+      return
+    }
+    if (currentPlaylist) {
+      if (playlistIndex > 0) {
+        goToPlaylistIndex(playlistIndex - 1)
+      } else if (loopMode === 'all') {
+        goToPlaylistIndex(currentPlaylist.items.length - 1)
+      }
+    } else {
+      if (libraryIndex > 0) {
+        goToLibraryIndex(libraryIndex - 1)
+      } else if (loopMode === 'all') {
+        goToLibraryIndex(orderedItems.length - 1)
+      }
     }
   }
 
@@ -763,10 +858,11 @@ function App() {
     setPlaylists([...playlists, newPlaylist])
     setEditingPlaylist(newPlaylist)
     setPlaylistManagerTab('my')
+    setPlaylistEditorStep('overview')
     setPlaylistAddSearch('')
     setPlaylistAddGenre('')
     setPlaylistAddExpandedFolders(new Set())
-    setShowPlaylistManager(true)
+    setActiveTab('playlists')
   }
 
   const handleSharePlaylist = async (playlist: Playlist) => {
@@ -830,7 +926,7 @@ function App() {
       const success = await saveSharedPlaylist(importedPlaylist)
       if (success) {
         setImportData('')
-        setShowImportModal(false)
+        setShowImportPanel(false)
         setPlaylistManagerTab('shared')
         alert('Playlist imported successfully!')
       } else {
@@ -969,10 +1065,8 @@ function App() {
 
     const audio = audioRef.current
     const handleEnded = () => {
-      const currentItem = currentPlaylist.items[playlistIndex]
-      
-      // If current item has loop enabled, restart it
-      if (currentItem?.loop) {
+      // Loop one: restart current track
+      if (loopMode === 'one') {
         audio.currentTime = 0
         audio.play().catch((err) => {
           console.error('Loop play failed:', err)
@@ -980,7 +1074,7 @@ function App() {
         return
       }
 
-      // Otherwise, move to next item
+      // Move to next item
       const nextIndex = playlistIndex + 1
       if (nextIndex < currentPlaylist.items.length) {
         const nextItem = items.find((item) => item.id === currentPlaylist.items[nextIndex].itemId)
@@ -988,8 +1082,16 @@ function App() {
           setPlaylistIndex(nextIndex)
           setSelectedId(nextItem.id)
         }
+      } else if (loopMode === 'all') {
+        // Loop all: go back to beginning
+        const firstItem = items.find((item) => item.id === currentPlaylist.items[0].itemId)
+        if (firstItem) {
+          setPlaylistIndex(0)
+          setSelectedId(firstItem.id)
+        }
       } else {
-        // Playlist finished
+        // No loop: playlist finished
+        setIsPlaying(false)
         setCurrentPlaylist(null)
         setPlaylistIndex(0)
       }
@@ -999,7 +1101,7 @@ function App() {
     return () => {
       audio.removeEventListener('ended', handleEnded)
     }
-  }, [currentPlaylist, playlistIndex, items])
+  }, [currentPlaylist, playlistIndex, items, loopMode])
 
   const handleToggleFolder = (path: string) => {
     setExpandedFolders((prev) => {
@@ -1015,12 +1117,115 @@ function App() {
 
   const handleSelectItem = (item: MediaItem) => {
     setSelectedId(item.id)
+    setCurrentPlaylist(null)
+    setPlaylistIndex(0)
+    setIsFullPlayerVisible(false)
+    setShouldAutoPlay(true)
   }
 
-  const selected = useMemo(
-    () => items.find((i) => i.id === selectedId) ?? null,
-    [items, selectedId],
+  const orderedItems = useMemo(
+    () => [...items].sort((a, b) => a.path.localeCompare(b.path)),
+    [items],
   )
+
+  const selected = useMemo(
+    () => orderedItems.find((i) => i.id === selectedId) ?? null,
+    [orderedItems, selectedId],
+  )
+
+  const libraryIndex = useMemo(() => {
+    if (!selected) return -1
+    return orderedItems.findIndex((item) => item.id === selected.id)
+  }, [orderedItems, selected])
+
+  useEffect(() => {
+    if (!selected?.path) return
+    const folders = selected.path.split('/').slice(0, -1)
+    if (folders.length === 0) return
+    setExpandedFolders((prev) => {
+      const next = new Set(prev)
+      let currentPath = ''
+      let updated = false
+      folders.forEach((segment) => {
+        currentPath = currentPath ? `${currentPath}/${segment}` : segment
+        if (!next.has(currentPath)) {
+          next.add(currentPath)
+          updated = true
+        }
+      })
+      return updated ? next : prev
+    })
+  }, [selected?.path])
+
+  useEffect(() => {
+    if (!selected || selected.type !== 'audio') {
+      setPlaybackPosition(0)
+      setPlaybackDuration(0)
+    }
+  }, [selected?.id, selected?.type])
+
+  useEffect(() => {
+    if (!shouldAutoPlay) return
+    if (selected?.type === 'audio' && audioRef.current) {
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.error('Auto play failed:', err))
+    }
+    setShouldAutoPlay(false)
+  }, [shouldAutoPlay, selected?.id, selected?.type])
+
+  useEffect(() => {
+    if (hasEnsuredMorningPlaylist || ensuringMorningRef.current) return
+    if (!sharedPlaylistsLoaded || items.length === 0) return
+
+    const existing = sharedPlaylists.find((p) => p.id === MORNING_PLAYLIST_ID)
+    if (existing) {
+      setHasEnsuredMorningPlaylist(true)
+      return
+    }
+
+    const morningItems = items
+      .filter(
+        (item) =>
+          item.collection === MORNING_COLLECTION &&
+          item.type === 'audio' &&
+          !(item.title || '').toLowerCase().includes('introduction'),
+      )
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .map((item) => ({
+        itemId: item.id,
+        loop: false,
+      }))
+
+    if (morningItems.length === 0) return
+
+    ensuringMorningRef.current = true
+    ;(async () => {
+      const playlist: Playlist = {
+        id: MORNING_PLAYLIST_ID,
+        name: MORNING_PLAYLIST_NAME,
+        items: morningItems,
+        shared: true,
+        shareId: generateShareId(),
+        coverEmoji: '🌅',
+      }
+      const success = await saveSharedPlaylist(playlist)
+      if (success) {
+        await fetchSharedPlaylists()
+        setHasEnsuredMorningPlaylist(true)
+      } else {
+        console.error('Failed to create Morning Breathwork playlist')
+      }
+      ensuringMorningRef.current = false
+    })()
+  }, [
+    items,
+    sharedPlaylists,
+    sharedPlaylistsLoaded,
+    hasEnsuredMorningPlaylist,
+    fetchSharedPlaylists,
+  ])
 
   // Update audio src when playlist index changes and auto-play next track
   useEffect(() => {
@@ -1062,13 +1267,13 @@ function App() {
   }
 
 
-  const handleClosePlaylistManager = () => {
-    setShowPlaylistManager(false)
+  const resetPlaylistEditorState = () => {
     setEditingPlaylist(null)
     setDraggedItemIndex(null)
     setPlaylistAddSearch('')
     setPlaylistAddGenre('')
     setPlaylistAddExpandedFolders(new Set())
+    setPlaylistEditorStep('overview')
   }
 
   // Auto-scroll to last playlist item in add section
@@ -1133,7 +1338,7 @@ function App() {
         )
       }
     }
-    handleClosePlaylistManager()
+    resetPlaylistEditorState()
   }
 
 
@@ -1185,510 +1390,533 @@ function App() {
     return [...playlists, ...sharedPlaylists]
   }, [playlists, sharedPlaylists])
 
-  return (
-    <div className="app-root">
-      {showFeatureAnnouncement && (
-        <div className="update-modal-overlay">
-          <div className="update-modal feature-announcement-modal">
-            <div className="update-modal-header">
-              <h2>✨ New Features Available!</h2>
-            </div>
-            <div className="update-modal-body">
-              <p className="update-message">
-                We've added some exciting new features to make your meditation experience even better:
-              </p>
-              
-              <div className="feature-section">
-                <div className="feature-item">
-                  <div className="feature-icon">⭐</div>
-                  <div className="feature-content">
-                    <h3>Favorites</h3>
-                    <p>Tap the star icon (☆) on any meditation or track to save it to your favorites. Click the ⭐ button in the header to view all your favorite items in one place.</p>
-                  </div>
-                </div>
+  const getPlaylistDuration = (playlist: Playlist): number => {
+    return playlist.items.reduce((sum, playlistItem) => {
+      const item = items.find((i) => i.id === playlistItem.itemId)
+      if (item?.metadata?.duration) {
+        return sum + item.metadata.duration
+      }
+      return sum
+    }, 0)
+  }
 
-                <div className="feature-item">
-                  <div className="feature-icon">🎵</div>
-                  <div className="feature-content">
-                    <h3>Playlists</h3>
-                    <p>Try our "Morning Breathwork" playlist! It plays three guided breathwork tracks seamlessly, one after another. More playlists coming soon!</p>
-                  </div>
+  const renderPlaylistCard = (playlist: Playlist) => {
+    const duration = getPlaylistDuration(playlist)
+    return (
+      <button
+        key={playlist.id}
+        type="button"
+        className="playlist-card"
+        onClick={() => handlePlayPlaylist(playlist)}
+        title={`Play ${playlist.name} (${playlist.items.length} items)`}
+        disabled={playlist.items.length === 0}
+      >
+        <div className="playlist-card-body">
+          <div className="playlist-card-icon">{playlist.coverEmoji ?? '🎧'}</div>
+          <div className="playlist-card-text">
+            <div className="playlist-card-head">
+              <div className="playlist-card-name">{playlist.name}</div>
+              {playlist.shared && (
+                <span className="playlist-shared-badge" aria-label="Shared playlist">
+                  🌐
+                </span>
+              )}
+            </div>
+            <div className="playlist-card-meta">
+              {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
+              {duration > 0 && (
+                <span className="playlist-card-duration"> • {formatDuration(duration)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </button>
+    )
+  }
+
+  const renderCollectionTree = (folder: FolderNode) => {
+    if (loading) {
+      return <p className="empty-state-card">Loading catalog...</p>
+    }
+    return (
+      <FolderComponent
+        folder={folder}
+        level={0}
+        onSelectItem={handleSelectItem}
+        searchQuery={query}
+        expandedFolders={expandedFolders}
+        onToggleFolder={handleToggleFolder}
+        favorites={favorites}
+        onToggleFavorite={handleToggleFavorite}
+        onPlayPlaylist={handlePlayPlaylist}
+      selectedItemId={selectedId}
+      />
+    )
+  }
+
+  const canLibraryPrevious = libraryIndex > 0
+  const canLibraryNext = libraryIndex >= 0 && libraryIndex < orderedItems.length - 1
+
+  const renderFavoritesTree = () => {
+    if (favorites.size === 0) {
+      return <p className="empty-state-card">No favorites yet. Tap ☆ on any item to save it.</p>
+    }
+    return renderCollectionTree(favoritesFolder)
+  }
+
+  const canGoPrevious = currentPlaylist
+    ? loopMode === 'all' || playlistIndex > 0
+    : loopMode === 'all' || canLibraryPrevious
+  const canGoNext = currentPlaylist
+    ? loopMode === 'all' || playlistIndex < (currentPlaylist?.items.length ?? 0) - 1
+    : loopMode === 'all' || canLibraryNext
+
+  const cycleLoopMode = () => {
+    setLoopMode((prev) => {
+      if (prev === 'none') return 'all'
+      if (prev === 'all') return 'one'
+      return 'none'
+    })
+  }
+
+  const handleSeek = (value: number) => {
+    if (audioRef.current && !Number.isNaN(value)) {
+      audioRef.current.currentTime = value
+    }
+    setPlaybackPosition(value)
+  }
+
+  const renderPlaylistEditorView = () => {
+    if (!editingPlaylist) return null
+    const totalDuration = getPlaylistDuration(editingPlaylist)
+    const coverEmoji = editingPlaylist.coverEmoji || '🎵'
+
+    return (
+      <div className="playlist-editor-panel">
+        <div className="playlist-editor-head">
+          <button type="button" className="ghost-button" onClick={resetPlaylistEditorState}>
+            ← Back
+          </button>
+          <div className="playlist-editor-header-actions">
+            <button
+              type="button"
+              className="icon-button destructive"
+              onClick={() => {
+                if (confirm(`Delete playlist "${editingPlaylist.name}"?`)) {
+                  handleDeletePlaylist(editingPlaylist.id, editingPlaylist.shared)
+                  resetPlaylistEditorState()
+                }
+              }}
+              title="Delete playlist"
+            >
+              🗑️
+            </button>
+            <button type="button" className="pill-button primary" onClick={handleSavePlaylist}>
+              Save
+            </button>
+          </div>
+        </div>
+
+        <div className="playlist-stepper">
+          {playlistEditorSteps.map((step, index) => (
+            <button
+              key={step.id}
+              type="button"
+              className={`playlist-step ${playlistEditorStep === step.id ? 'active' : ''}`}
+              onClick={() => setPlaylistEditorStep(step.id)}
+            >
+              <span className="playlist-step-index">{index + 1}</span>
+              <span className="playlist-step-copy">
+                <span className="playlist-step-label">{step.label}</span>
+                <span className="playlist-step-description">{step.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {playlistEditorStep === 'overview' && (
+          <div className="playlist-step-card">
+            <label className="playlist-field">
+              <span className="playlist-field-label">Playlist name</span>
+              <input
+                type="text"
+                className="playlist-name-input"
+                value={editingPlaylist.name}
+                onChange={(e) => setEditingPlaylist({ ...editingPlaylist, name: e.target.value })}
+                placeholder="Morning Flow"
+              />
+            </label>
+
+            <div className="cover-picker">
+              <div className="cover-preview">
+                <span className="cover-preview-emoji">{coverEmoji}</span>
+                <div>
+                  <p>{editingPlaylist.name || 'Untitled playlist'}</p>
+                  <span className="cover-subline">{editingPlaylist.items.length} tracks</span>
                 </div>
               </div>
+              <div className="cover-options">
+                {PLAYLIST_COVER_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className={`cover-pill ${editingPlaylist.coverEmoji === emoji ? 'active' : ''}`}
+                    onClick={() => setEditingPlaylist({ ...editingPlaylist, coverEmoji: emoji })}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="update-modal-footer">
-              <button
-                type="button"
-                className="update-refresh-button"
-                onClick={handleDismissFeatureAnnouncement}
-              >
-                Got it!
-              </button>
+
+            <div className="visibility-toggle">
+              <div>
+                <p className="visibility-title">{editingPlaylist.shared ? 'Shared playlist' : 'Private playlist'}</p>
+                <span className="visibility-sub">
+                  {editingPlaylist.shared
+                    ? 'Available to anyone with the share link.'
+                    : 'Stored locally on this device.'}
+                </span>
+              </div>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={editingPlaylist.shared}
+                  onChange={(e) =>
+                    setEditingPlaylist({
+                      ...editingPlaylist,
+                      shared: e.target.checked,
+                      shareId: e.target.checked ? editingPlaylist.shareId ?? generateShareId() : editingPlaylist.shareId,
+                    })
+                  }
+                />
+                <span className="slider" />
+              </label>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Playlist Manager Modal */}
-      {showPlaylistManager && (
-        <div className="update-modal-overlay">
-          <div className="update-modal playlist-manager-modal">
-            <div className="update-modal-header">
-              <h2>🎵 Manage Playlists</h2>
+        {playlistEditorStep === 'items' && (
+          <div className="playlist-step-card">
+            <div className="playlist-items-label">
+              Items ({editingPlaylist.items.length})
+              {totalDuration > 0 && (
+                <span className="playlist-total-duration"> • {formatDuration(totalDuration)}</span>
+              )}
             </div>
-            <div className="update-modal-body">
-              {editingPlaylist ? (
-                <div className="playlist-editor">
-                  <div className="playlist-editor-header">
-                    <input
-                      type="text"
-                      className="playlist-name-input"
-                      value={editingPlaylist.name}
-                      onChange={(e) =>
-                        setEditingPlaylist({ ...editingPlaylist, name: e.target.value })
-                      }
-                      placeholder="Playlist name"
-                    />
-                    <button
-                      type="button"
-                      className="playlist-delete-button"
-                      onClick={() => {
-                        if (confirm(`Delete playlist "${editingPlaylist.name}"?`)) {
-                          handleDeletePlaylist(editingPlaylist.id, editingPlaylist.shared)
-                          handleClosePlaylistManager()
-                        }
+
+            {editingPlaylist.items.length > 0 ? (
+              <div className="playlist-items-list">
+                {editingPlaylist.items.map((playlistItem, index) => {
+                  const item = items.find((i) => i.id === playlistItem.itemId)
+                  if (!item) return null
+                  return (
+                    <div
+                      key={`${playlistItem.itemId}-${index}`}
+                      className={`playlist-item-row ${draggedItemIndex === index ? 'dragging' : ''}`}
+                      draggable
+                      onDragStart={() => setDraggedItemIndex(index)}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.add('drag-over')
                       }}
-                      title="Delete playlist"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-
-                  {/* Action Buttons - Moved Above Content */}
-                  <div className="playlist-editor-actions">
-                    <button
-                      type="button"
-                      className="update-dismiss-button"
-                      onClick={handleClosePlaylistManager}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="update-refresh-button"
-                      onClick={handleSavePlaylist}
-                    >
-                      Save
-                    </button>
-                  </div>
-
-                  <div className="playlist-items-section">
-                    <div className="playlist-items-label">
-                      Items ({editingPlaylist.items.length}):
-                      {(() => {
-                        const totalDuration = editingPlaylist.items.reduce((sum, playlistItem) => {
-                          const item = items.find(i => i.id === playlistItem.itemId)
-                          if (item?.metadata?.duration) {
-                            return sum + item.metadata.duration
-                          }
-                          return sum
-                        }, 0)
-                        return totalDuration > 0 ? (
-                          <span className="playlist-total-duration"> • Total: {formatDuration(totalDuration)}</span>
-                        ) : null
-                      })()}
-                    </div>
-                    {editingPlaylist.items.length > 0 ? (
-                      <div className="playlist-items-list">
-                        {editingPlaylist.items.map((playlistItem, index) => {
-                          const item = items.find((i) => i.id === playlistItem.itemId)
-                          if (!item) return null
-                          return (
-                            <div
-                              key={`${playlistItem.itemId}-${index}`}
-                              className={`playlist-item-row ${draggedItemIndex === index ? 'dragging' : ''}`}
-                              draggable
-                              onDragStart={() => setDraggedItemIndex(index)}
-                              onDragOver={(e) => {
-                                e.preventDefault()
-                                e.currentTarget.classList.add('drag-over')
-                              }}
-                              onDragLeave={(e) => {
-                                e.currentTarget.classList.remove('drag-over')
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault()
-                                e.currentTarget.classList.remove('drag-over')
-                                  if (draggedItemIndex !== null && draggedItemIndex !== index) {
-                                  handleReorderPlaylistItems(
-                                    editingPlaylist.id,
-                                    draggedItemIndex,
-                                    index,
-                                    editingPlaylist.shared
-                                  )
-                                }
-                                setDraggedItemIndex(null)
-                              }}
-                              onDragEnd={() => {
-                                setDraggedItemIndex(null)
-                                document
-                                  .querySelectorAll('.playlist-item-row')
-                                  .forEach((el) => el.classList.remove('drag-over'))
-                              }}
-                            >
-                              <div className="playlist-item-drag-handle">☰</div>
-                              <div className="playlist-item-info">
-                                <div className="playlist-item-title">{item.title}</div>
-                                {item.metadata?.album && (
-                                  <div className="playlist-item-album">{item.metadata.album}</div>
-                                )}
-                                {item.metadata?.duration && (
-                                  <div className="playlist-item-duration">⏱️ {formatDuration(item.metadata.duration)}</div>
-                                )}
-                              </div>
-                              <div className="playlist-item-actions">
-                                <button
-                                  type="button"
-                                  className={`loop-toggle-button ${playlistItem.loop ? 'active' : ''}`}
-                                  onClick={() => handleToggleLoopItem(editingPlaylist.id, index, editingPlaylist.shared)}
-                                  title={playlistItem.loop ? 'Disable loop' : 'Loop forever'}
-                                >
-                                  {playlistItem.loop ? '🔄' : '▶️'}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="playlist-item-remove-button"
-                                  onClick={() =>
-                                    handleRemoveItemFromPlaylist(editingPlaylist.id, index, editingPlaylist.shared)
-                                  }
-                                  title="Remove from playlist"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            </div>
+                      onDragLeave={(e) => {
+                        e.currentTarget.classList.remove('drag-over')
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.currentTarget.classList.remove('drag-over')
+                        if (draggedItemIndex !== null && draggedItemIndex !== index) {
+                          handleReorderPlaylistItems(
+                            editingPlaylist.id,
+                            draggedItemIndex,
+                            index,
+                            editingPlaylist.shared
                           )
-                        })}
-                      </div>
-                    ) : (
-                      <div className="playlist-items-empty">
-                        No items in this playlist. Add items below.
-                      </div>
-                    )}
-
-                    <div className="playlist-add-section">
-                      <div className="playlist-add-label">Add items:</div>
-                      
-                      {/* Search and Filter Controls */}
-                      <div className="playlist-add-controls">
-                        <input
-                          type="search"
-                          className="playlist-add-search"
-                          placeholder="Search by folder or item name..."
-                          value={playlistAddSearch}
-                          onChange={(e) => {
-                            setPlaylistAddSearch(e.target.value)
-                            // Auto-expand folders when searching
-                            if (e.target.value) {
-                              const allPaths = new Set<string>()
-                              const collectPaths = (node: FolderNode) => {
-                                if (node.fullPath) allPaths.add(node.fullPath)
-                                node.subfolders.forEach(collectPaths)
-                              }
-                              const allItems = getAllItemsForPlaylistEditor()
-                              const filteredItems = filterItemsForPlaylist(allItems, e.target.value, playlistAddGenre)
-                              const tree = buildFolderTree(filteredItems)
-                              collectPaths(tree)
-                              setPlaylistAddExpandedFolders(allPaths)
-                            }
-                          }}
-                        />
-                        {getAvailableGenres().length > 0 && (
-                          <select
-                            className="playlist-add-genre-filter"
-                            value={playlistAddGenre}
-                            onChange={(e) => setPlaylistAddGenre(e.target.value)}
-                          >
-                            <option value="">All Genres</option>
-                            {getAvailableGenres().map((genre) => (
-                              <option key={genre} value={genre}>
-                                {genre}
-                              </option>
-                            ))}
-                          </select>
+                        }
+                        setDraggedItemIndex(null)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedItemIndex(null)
+                        document
+                          .querySelectorAll('.playlist-item-row')
+                          .forEach((el) => el.classList.remove('drag-over'))
+                      }}
+                    >
+                      <div className="playlist-item-drag-handle">☰</div>
+                      <div className="playlist-item-info">
+                        <div className="playlist-item-title">{item.title}</div>
+                        {item.metadata?.album && (
+                          <div className="playlist-item-album">{item.metadata.album}</div>
+                        )}
+                        {item.metadata?.duration && (
+                          <div className="playlist-item-duration">⏱️ {formatDuration(item.metadata.duration)}</div>
                         )}
                       </div>
-
-                      {/* Tree View of Available Items */}
-                      <div className="playlist-add-items-tree" ref={playlistAddTreeRef}>
-                        {(() => {
-                          const allItems = getAllItemsForPlaylistEditor()
-                          const filteredItems = filterItemsForPlaylist(allItems, playlistAddSearch, playlistAddGenre)
-                          const filteredTree = buildFolderTree(filteredItems)
-                          
-                          if (filteredItems.length === 0) {
-                            return (
-                              <div className="playlist-add-empty">
-                                No items match your search or filter.
-                              </div>
-                            )
+                      <div className="playlist-item-actions">
+                        <button
+                          type="button"
+                          className={`loop-toggle-button ${playlistItem.loop ? 'active' : ''}`}
+                          onClick={() => handleToggleLoopItem(editingPlaylist.id, index, editingPlaylist.shared)}
+                          title={playlistItem.loop ? 'Disable loop' : 'Loop forever'}
+                        >
+                          {playlistItem.loop ? '🔄' : '▶️'}
+                        </button>
+                        <button
+                          type="button"
+                          className="playlist-item-remove-button"
+                          onClick={() =>
+                            handleRemoveItemFromPlaylist(editingPlaylist.id, index, editingPlaylist.shared)
                           }
-
-                          return (
-                            <PlaylistAddFolderComponent
-                              folder={filteredTree}
-                              level={0}
-                              playlist={editingPlaylist}
-                              onAddItem={(itemId: string) => handleAddItemToPlaylist(editingPlaylist.id, itemId, editingPlaylist.shared)}
-                              searchQuery={playlistAddSearch}
-                              expandedFolders={playlistAddExpandedFolders}
-                              onToggleFolder={(path: string) => {
-                                setPlaylistAddExpandedFolders((prev) => {
-                                  const next = new Set(prev)
-                                  if (next.has(path)) {
-                                    next.delete(path)
-                                  } else {
-                                    next.add(path)
-                                  }
-                                  return next
-                                })
-                              }}
-                              playlistItemIds={new Set(editingPlaylist.items.map(item => item.itemId))}
-                              onRemoveItem={(itemId: string) => {
-                                const playlistItemIndex = editingPlaylist.items.findIndex(pi => pi.itemId === itemId)
-                                if (playlistItemIndex >= 0) {
-                                  handleRemoveItemFromPlaylist(editingPlaylist.id, playlistItemIndex, editingPlaylist.shared)
-                                }
-                              }}
-                            />
-                          )
-                        })()}
+                          title="Remove from playlist"
+                        >
+                          ✕
+                        </button>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="playlists-manager-list">
-                  {/* Tabs */}
-                  <div className="playlist-manager-tabs">
-                    <button
-                      type="button"
-                      className={`playlist-manager-tab ${playlistManagerTab === 'my' ? 'active' : ''}`}
-                      onClick={() => setPlaylistManagerTab('my')}
-                    >
-                      My Playlists ({playlists.length})
-                    </button>
-                    <button
-                      type="button"
-                      className={`playlist-manager-tab ${playlistManagerTab === 'shared' ? 'active' : ''}`}
-                      onClick={() => setPlaylistManagerTab('shared')}
-                    >
-                      Shared Playlists ({sharedPlaylists.length})
-                    </button>
-                  </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="playlist-items-empty">No items in this playlist. Add items below.</div>
+            )}
 
-                  {/* Playlists List */}
-                  {playlistManagerTab === 'my' ? (
-                    playlists.length > 0 ? (
-                      <div className="playlists-manager-items">
-                        {playlists.map((playlist) => (
-                          <div key={playlist.id} className="playlist-manager-item">
-                            <div className="playlist-manager-item-info">
-                              <div className="playlist-manager-item-name">{playlist.name}</div>
-                              <div className="playlist-manager-item-count">
-                                {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
-                                {(() => {
-                                  const totalDuration = playlist.items.reduce((sum, playlistItem) => {
-                                    const item = items.find(i => i.id === playlistItem.itemId)
-                                    if (item?.metadata?.duration) {
-                                      return sum + item.metadata.duration
-                                    }
-                                    return sum
-                                  }, 0)
-                                  return totalDuration > 0 ? (
-                                    <span className="playlist-manager-duration"> • {formatDuration(totalDuration)}</span>
-                                  ) : null
-                                })()}
-                              </div>
-                            </div>
-                            <div className="playlist-manager-item-actions">
-                              <button
-                                type="button"
-                                className="playlist-manager-share-button"
-                                onClick={() => handleSharePlaylist(playlist)}
-                                title="Share playlist"
-                              >
-                                🌐 Share
-                              </button>
-                              <button
-                                type="button"
-                                className="playlist-manager-edit-button"
-                                onClick={() => {
-                                  setEditingPlaylist(playlist)
-                                  setPlaylistManagerTab('my')
-                                  setPlaylistAddSearch('')
-                                  setPlaylistAddGenre('')
-                                  setPlaylistAddExpandedFolders(new Set())
-                                }}
-                                title="Edit playlist"
-                              >
-                                ✏️ Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="playlist-manager-delete-button"
-                                onClick={() => {
-                                  if (confirm(`Delete playlist "${playlist.name}"?`)) {
-                                    handleDeletePlaylist(playlist.id, false)
-                                  }
-                                }}
-                                title="Delete playlist"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="playlists-manager-empty">No playlists yet. Create one to get started!</div>
-                    )
-                  ) : (
-                    sharedPlaylists.length > 0 ? (
-                      <div className="playlists-manager-items">
-                        {sharedPlaylists.map((playlist) => (
-                          <div key={playlist.id} className="playlist-manager-item">
-                            <div className="playlist-manager-item-info">
-                              <div className="playlist-manager-item-name">
-                                {playlist.name}
-                                <span className="playlist-shared-badge">🌐</span>
-                              </div>
-                              <div className="playlist-manager-item-count">
-                                {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
-                                {(() => {
-                                  const totalDuration = playlist.items.reduce((sum, playlistItem) => {
-                                    const item = items.find(i => i.id === playlistItem.itemId)
-                                    if (item?.metadata?.duration) {
-                                      return sum + item.metadata.duration
-                                    }
-                                    return sum
-                                  }, 0)
-                                  return totalDuration > 0 ? (
-                                    <span className="playlist-manager-duration"> • {formatDuration(totalDuration)}</span>
-                                  ) : null
-                                })()}
-                              </div>
-                            </div>
-                            <div className="playlist-manager-item-actions">
-                              <button
-                                type="button"
-                                className="playlist-manager-share-button"
-                                onClick={() => handleSharePlaylist(playlist)}
-                                title="Unshare playlist"
-                              >
-                                🔒 Unshare
-                              </button>
-                              <button
-                                type="button"
-                                className="playlist-manager-edit-button"
-                                onClick={() => {
-                                  setEditingPlaylist(playlist)
-                                  setPlaylistManagerTab('shared')
-                                  setPlaylistAddSearch('')
-                                  setPlaylistAddGenre('')
-                                  setPlaylistAddExpandedFolders(new Set())
-                                }}
-                                title="Edit playlist"
-                              >
-                                ✏️ Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="playlist-manager-delete-button"
-                                onClick={() => {
-                                  if (confirm(`Delete shared playlist "${playlist.name}"?`)) {
-                                    handleDeletePlaylist(playlist.id, true)
-                                  }
-                                }}
-                                title="Delete playlist"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="playlists-manager-empty">
-                        No shared playlists yet. Share a playlist or import one!
-                      </div>
-                    )
-                  )}
+            <div className="playlist-add-section">
+              <div className="playlist-add-label">Add items</div>
+              <div className="playlist-add-controls">
+                <input
+                  type="search"
+                  className="playlist-add-search"
+                  placeholder="Search by folder or item name..."
+                  value={playlistAddSearch}
+                  onChange={(e) => {
+                    setPlaylistAddSearch(e.target.value)
+                    if (e.target.value) {
+                      const allPaths = new Set<string>()
+                      const collectPaths = (node: FolderNode) => {
+                        if (node.fullPath) allPaths.add(node.fullPath)
+                        node.subfolders.forEach(collectPaths)
+                      }
+                      const allItems = getAllItemsForPlaylistEditor()
+                      const filteredItems = filterItemsForPlaylist(allItems, e.target.value, playlistAddGenre)
+                      const tree = buildFolderTree(filteredItems)
+                      collectPaths(tree)
+                      setPlaylistAddExpandedFolders(allPaths)
+                    }
+                  }}
+                />
+                {getAvailableGenres().length > 0 && (
+                  <select
+                    className="playlist-add-genre-filter"
+                    value={playlistAddGenre}
+                    onChange={(e) => setPlaylistAddGenre(e.target.value)}
+                  >
+                    <option value="">All Genres</option>
+                    {getAvailableGenres().map((genre) => (
+                      <option key={genre} value={genre}>
+                        {genre}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
 
-                  {/* Import Section */}
-                  {playlistManagerTab === 'shared' && (
-                    <div className="playlist-import-section">
-                      <button
-                        type="button"
-                        className="playlist-import-button"
-                        onClick={() => setShowImportModal(true)}
-                      >
-                        📥 Import Playlist
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="update-modal-footer">
-              {!editingPlaylist && (
-                <>
-                  <button
-                    type="button"
-                    className="update-dismiss-button"
-                    onClick={handleClosePlaylistManager}
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    className="update-refresh-button"
-                    onClick={handleCreatePlaylist}
-                  >
-                    + New Playlist
-                  </button>
-                </>
-              )}
+              <div className="playlist-add-items-tree" ref={playlistAddTreeRef}>
+                {(() => {
+                  const allItems = getAllItemsForPlaylistEditor()
+                  const filteredItems = filterItemsForPlaylist(allItems, playlistAddSearch, playlistAddGenre)
+                  const filteredTree = buildFolderTree(filteredItems)
+
+                  if (filteredItems.length === 0) {
+                    return <div className="playlist-add-empty">No items match your search or filter.</div>
+                  }
+
+                  return (
+                    <PlaylistAddFolderComponent
+                      folder={filteredTree}
+                      level={0}
+                      playlist={editingPlaylist}
+                      onAddItem={(itemId: string) => handleAddItemToPlaylist(editingPlaylist.id, itemId, editingPlaylist.shared)}
+                      searchQuery={playlistAddSearch}
+                      expandedFolders={playlistAddExpandedFolders}
+                      onToggleFolder={(path: string) => {
+                        setPlaylistAddExpandedFolders((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(path)) {
+                            next.delete(path)
+                          } else {
+                            next.add(path)
+                          }
+                          return next
+                        })
+                      }}
+                      playlistItemIds={new Set(editingPlaylist.items.map(item => item.itemId))}
+                      onRemoveItem={(itemId: string) => {
+                        const playlistItemIndex = editingPlaylist.items.findIndex(pi => pi.itemId === itemId)
+                        if (playlistItemIndex >= 0) {
+                          handleRemoveItemFromPlaylist(editingPlaylist.id, playlistItemIndex, editingPlaylist.shared)
+                        }
+                      }}
+                    />
+                  )
+                })()}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Import Playlist Modal */}
-      {showImportModal && (
-        <div className="update-modal-overlay">
-          <div className="update-modal">
-            <div className="update-modal-header">
-              <h2>📥 Import Playlist</h2>
-            </div>
-            <div className="update-modal-body">
-              <p className="update-message">
-                Paste the playlist JSON data below to import a shared playlist:
-              </p>
-              <textarea
-                className="playlist-import-textarea"
-                value={importData}
-                onChange={(e) => setImportData(e.target.value)}
-                placeholder='{"name": "Playlist Name", "items": [...]}'
-                rows={10}
-              />
-            </div>
-            <div className="update-modal-footer">
+        {playlistEditorStep === 'share' && (
+          <div className="playlist-step-card">
+            <div className="share-status-card">
+              <div>
+                <p className="share-status-title">{editingPlaylist.shared ? 'This playlist will be shared' : 'This playlist stays private'}</p>
+                <span className="share-status-sub">
+                  {editingPlaylist.shared
+                    ? 'When you save, the playlist will be synced via Supabase.'
+                    : 'Only available on this device until you enable sharing.'}
+                </span>
+              </div>
               <button
                 type="button"
-                className="update-dismiss-button"
+                className="pill-button"
+                onClick={() =>
+                  setEditingPlaylist({
+                    ...editingPlaylist,
+                    shared: !editingPlaylist.shared,
+                    shareId: !editingPlaylist.shared
+                      ? editingPlaylist.shareId ?? generateShareId()
+                      : editingPlaylist.shareId,
+                  })
+                }
+              >
+                {editingPlaylist.shared ? 'Mark as private' : 'Enable sharing'}
+              </button>
+            </div>
+            <div className="share-details">
+              <p className="share-detail-line">
+                Supabase connection:{' '}
+                <strong>{supabaseConfigured ? 'Configured' : 'Not detected'}</strong>
+              </p>
+              {editingPlaylist.shareId && (
+                <p className="share-detail-line">
+                  Share ID: <code>{editingPlaylist.shareId}</code>
+                </p>
+              )}
+              <p className="share-note">
+                Saving with sharing enabled will upload the playlist to Supabase so other users can find it under “Shared”.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderPlaylistListView = () => {
+    const currentList = playlistManagerTab === 'my' ? playlists : sharedPlaylists
+    if (currentList.length === 0) {
+      return (
+        <div className="playlists-manager-empty">
+          {playlistManagerTab === 'my'
+            ? 'No playlists yet. Create one to get started!'
+            : 'No shared playlists yet. Share a playlist or import one!'}
+        </div>
+      )
+    }
+
+    return (
+      <div className="playlists-manager-items">
+        {currentList.map((playlist) => {
+          const duration = getPlaylistDuration(playlist)
+          return (
+            <div key={playlist.id} className="playlist-manager-item">
+              <div className="playlist-manager-item-info">
+                <div className="playlist-manager-item-name">
+                  <span className="playlist-manager-item-title">{playlist.name}</span>
+                  {playlist.shared && (
+                    <span className="playlist-shared-badge" aria-label="Shared playlist">
+                      🌐
+                    </span>
+                  )}
+                </div>
+                <div className="playlist-manager-item-count">
+                  {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
+                  {duration > 0 && <span className="playlist-manager-duration"> • {formatDuration(duration)}</span>}
+                </div>
+              </div>
+              <div className="playlist-manager-item-actions">
+                <button
+                  type="button"
+                  className="playlist-manager-edit-button"
+                  onClick={() => {
+                    setEditingPlaylist(playlist)
+                    setPlaylistManagerTab(playlist.shared ? 'shared' : 'my')
+                    setPlaylistEditorStep('overview')
+                    setPlaylistAddSearch('')
+                    setPlaylistAddGenre('')
+                    setPlaylistAddExpandedFolders(new Set())
+                  }}
+                  title="Edit playlist"
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  type="button"
+                  className="playlist-manager-share-button"
+                  onClick={() => handleSharePlaylist(playlist)}
+                  title={playlist.shared ? 'Unshare playlist' : 'Share playlist'}
+                >
+                  {playlist.shared ? '🔒 Unshare' : '🌐 Share'}
+                </button>
+                <button
+                  type="button"
+                  className="playlist-manager-delete-button"
+                  onClick={() => {
+                    if (confirm(`Delete playlist "${playlist.name}"?`)) {
+                      handleDeletePlaylist(playlist.id, playlist.shared)
+                    }
+                  }}
+                  title="Delete playlist"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  const renderImportPanel = () => {
+    if (playlistManagerTab !== 'shared') return null
+    return (
+      <div className="playlist-import-panel">
+        <button
+          type="button"
+          className="pill-button"
+          onClick={() => setShowImportPanel((prev) => !prev)}
+        >
+          {showImportPanel ? 'Hide Import' : '📥 Import Playlist'}
+        </button>
+        {showImportPanel && (
+          <div className="playlist-import-body">
+            <p className="playlist-import-description">
+              Paste playlist JSON data to import a shared playlist.
+            </p>
+            <textarea
+              className="playlist-import-textarea"
+              value={importData}
+              onChange={(e) => setImportData(e.target.value)}
+              placeholder='{"name": "Playlist Name", "items": [...]}'
+              rows={8}
+            />
+            <div className="playlist-import-actions">
+              <button
+                type="button"
+                className="ghost-button"
                 onClick={() => {
-                  setShowImportModal(false)
+                  setShowImportPanel(false)
                   setImportData('')
                 }}
               >
@@ -1696,400 +1924,694 @@ function App() {
               </button>
               <button
                 type="button"
-                className="update-refresh-button"
+                className="pill-button primary"
                 onClick={handleImportPlaylist}
               >
                 Import
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {updateAvailable && (
-        <div className="update-modal-overlay">
-          <div className="update-modal">
-            <div className="update-modal-header">
-              <h2>🔄 New Version Available</h2>
-            </div>
-            <div className="update-modal-body">
-              <p className="update-version">Version {updateAvailable.version}</p>
-              <p className="update-message">The app has been updated with the following changes:</p>
-              <ul className="update-changelog">
-                {updateAvailable.changelog.map((change, index) => (
-                  <li key={index}>{change}</li>
-                ))}
-              </ul>
-            </div>
-            <div className="update-modal-footer">
-              <button
-                type="button"
-                className="update-refresh-button"
-                onClick={handleUpdateRefresh}
-              >
-                Refresh Now
-              </button>
-              <button
-                type="button"
-                className="update-dismiss-button"
-                onClick={() => {
-                  // Store the new version but don't refresh yet
-                  localStorage.setItem('drjoe-version', updateAvailable.version)
-                  setCurrentVersion(updateAvailable.version)
-                  setUpdateAvailable(null)
-                }}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <header className="app-header">
-        <h1 className="app-title">Dr Joe Library</h1>
-        <p className="app-subtitle">Browse by folder structure</p>
-      </header>
-
-      <section className="controls">
-        <div className="controls-row">
-          <input
-            type="search"
-            className="search-input"
-            placeholder="Search by title, course, or file…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <button
-            type="button"
-            className={`view-toggle-button ${showFavorites ? 'active' : ''}`}
-            onClick={() => setShowFavorites(!showFavorites)}
-            title={showFavorites ? 'Show all items' : 'Show favorites'}
-          >
-            {showFavorites ? '📁' : '⭐'}
-          </button>
-        </div>
-        <div className="playlists-section">
-          <div className="playlists-header">
-            <div className="playlists-label">Playlists:</div>
-            <div className="playlists-actions">
-              <button
-                type="button"
-                className="playlist-manage-button"
-                onClick={() => setShowPlaylistManager(true)}
-                title="Manage playlists"
-              >
-                ⚙️ Manage
-              </button>
-            </div>
-          </div>
-          {allPlaylists.length > 0 ? (
-            <div className="playlists-list">
-              {allPlaylists.map((playlist) => (
-                <button
-                  key={playlist.id}
-                  type="button"
-                  className="playlist-button"
-                  onClick={() => handlePlayPlaylist(playlist)}
-                  title={`Play ${playlist.name} (${playlist.items.length} items)`}
-                  disabled={playlist.items.length === 0}
-                >
-                  <span>▶️ {playlist.name} ({playlist.items.length})</span>
-                  {(() => {
-                    const totalDuration = playlist.items.reduce((sum, playlistItem) => {
-                      const item = items.find(i => i.id === playlistItem.itemId)
-                      if (item?.metadata?.duration) {
-                        return sum + item.metadata.duration
-                      }
-                      return sum
-                    }, 0)
-                    return totalDuration > 0 ? (
-                      <span className="playlist-button-duration">{formatDuration(totalDuration)}</span>
-                    ) : null
-                  })()}
-                  {playlist.shared && <span className="playlist-shared-badge">🌐</span>}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="playlists-empty">No playlists yet. Click "Manage" to create one.</div>
-          )}
-        </div>
-      </section>
-
-      <main className="media-list">
-        {loading ? (
-          <p className="empty-state">Loading catalog...</p>
-        ) : showFavorites ? (
-          favorites.size > 0 ? (
-            <FolderComponent
-              folder={favoritesFolder}
-              level={0}
-              onSelectItem={handleSelectItem}
-              searchQuery={query}
-              expandedFolders={expandedFolders}
-              onToggleFolder={handleToggleFolder}
-              favorites={favorites}
-              onToggleFavorite={handleToggleFavorite}
-              onPlayPlaylist={handlePlayPlaylist}
-            />
-          ) : (
-            <p className="empty-state">No favorites yet. Click the star icon on any item to add it to favorites.</p>
-          )
-        ) : (
-          <FolderComponent
-            folder={folderTree}
-            level={0}
-            onSelectItem={handleSelectItem}
-            searchQuery={query}
-            expandedFolders={expandedFolders}
-            onToggleFolder={handleToggleFolder}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onPlayPlaylist={handlePlayPlaylist}
-          />
         )}
-      </main>
+      </div>
+    )
+  }
 
-      {selected && (
-        <div className="player-sheet">
-          <div className="player-header">
-            <div>
-              <div className="player-collection">{selected.collection}</div>
-              <div className="player-title">{selected.title}</div>
-            </div>
+  const renderHomeScreen = () => (
+    <div className="screen home-screen">
+      <section className="hero-section">
+        <div className="hero-card">
+          <div className="hero-label">Morning focus</div>
+          <div className="hero-title">Breathwork Blend</div>
+          <p className="hero-subtitle">
+            Flow through guided meditations without interruption.
+          </p>
+          <div className="hero-actions">
             <button
               type="button"
-              className="close-button"
-              onClick={() => setSelectedId(null)}
+              className="pill-button primary"
+              onClick={() => {
+                const targetPlaylist =
+                  sharedPlaylists.find((p) => p.id === MORNING_PLAYLIST_ID) || null
+                if (targetPlaylist) {
+                  handlePlayPlaylist(targetPlaylist)
+                  setActiveTab('home')
+                }
+              }}
+              disabled={!sharedPlaylists.some((p) => p.id === MORNING_PLAYLIST_ID)}
             >
-              Close
+              ▶️ Play Morning Breathwork
+            </button>
+            <button
+              type="button"
+              className="pill-button ghost"
+              onClick={() => setActiveTab('playlists')}
+            >
+              Browse playlists
             </button>
           </div>
+        </div>
+      </section>
+      
+      <section className="section-block">
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">Playlists</p>
+            <h2>Featured mixes</h2>
+          </div>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setActiveTab('playlists')}
+          >
+            Manage
+          </button>
+        </div>
+        {allPlaylists.length > 0 ? (
+          <div className="playlist-rail">
+            {allPlaylists.map((playlist) => renderPlaylistCard(playlist))}
+          </div>
+        ) : (
+          <p className="empty-state-card">No playlists yet. Create one in the Playlists tab.</p>
+        )}
+      </section>
 
-          <div className="player-body">
-            {MEDIA_BASE_URL ? (
-              <>
-                {selected.type === 'video' ? (
-                  <>
-                    <video
-                      ref={videoRef}
-                      className="player-media"
-                      src={buildMediaUrl(selected.path)}
-                      controls
-                      playsInline
-                      autoPlay
-                      loop={loopCurrentItem}
-                      onError={(e) => {
-                        console.error('Video playback error:', e)
-                        const target = e.target as HTMLVideoElement
-                        console.error('Video src:', target.src)
-                        console.error('Error details:', target.error)
-                      }}
-                      onPlay={() => {
-                        // Enter fullscreen when user starts playing (requires user interaction)
-                        if (videoRef.current) {
-                          const video = videoRef.current
-                          const enterFullscreen = async () => {
-                            try {
-                              if (video.requestFullscreen) {
-                                await video.requestFullscreen()
-                              } else if ((video as any).webkitRequestFullscreen) {
-                                await (video as any).webkitRequestFullscreen()
-                              } else if ((video as any).webkitEnterFullscreen) {
-                                // iOS Safari
-                                await (video as any).webkitEnterFullscreen()
-                              } else if ((video as any).mozRequestFullScreen) {
-                                await (video as any).mozRequestFullScreen()
-                              } else if ((video as any).msRequestFullscreen) {
-                                await (video as any).msRequestFullscreen()
-                              }
-                            } catch (error) {
-                              console.log('Fullscreen not available:', error)
-                            }
-                          }
-                          enterFullscreen()
-                        }
-                      }}
-                    />
-                    <div className="player-controls">
-                      <button
-                        type="button"
-                        className={`loop-toggle-button ${loopCurrentItem ? 'active' : ''}`}
-                        onClick={() => setLoopCurrentItem(!loopCurrentItem)}
-                        title={loopCurrentItem ? 'Disable loop' : 'Loop forever'}
-                      >
-                        {loopCurrentItem ? '🔄 Loop On' : '▶️ Play Once'}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <audio
-                      ref={audioRef}
-                      className="player-media"
-                      src={buildMediaUrl(selected.path)}
-                      controls
-                      autoPlay={currentPlaylist !== null || loopCurrentItem}
-                      loop={loopCurrentItem && currentPlaylist === null}
-                      onError={(e) => {
-                        console.error('Audio playback error:', e)
-                        const target = e.target as HTMLAudioElement
-                        console.error('Audio src:', target.src)
-                        console.error('Error details:', target.error)
-                      }}
-                      onEnded={() => {
-                        // Handle loop for individual audio items (not in playlist)
-                        if (loopCurrentItem && currentPlaylist === null && audioRef.current) {
-                          audioRef.current.currentTime = 0
-                          audioRef.current.play().catch((err) => {
-                            console.error('Failed to loop audio:', err)
-                          })
-                        }
-                      }}
-                    />
-                    {currentPlaylist === null && (
-                      <div className="player-controls">
-                        <button
-                          type="button"
-                          className={`loop-toggle-button ${loopCurrentItem ? 'active' : ''}`}
-                          onClick={() => setLoopCurrentItem(!loopCurrentItem)}
-                          title={loopCurrentItem ? 'Disable loop' : 'Loop forever'}
-                        >
-                          {loopCurrentItem ? '🔄 Loop On' : '▶️ Play Once'}
-                        </button>
-                      </div>
-                    )}
-                    {currentPlaylist && (
-                      <div className="playlist-info">
-                        <div className="playlist-name">
-                          📋 {currentPlaylist.name} ({playlistIndex + 1} / {currentPlaylist.items.length})
-                          {currentPlaylist.items[playlistIndex]?.loop && (
-                            <span className="loop-indicator"> 🔄 Looping</span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          className="playlist-stop-button"
-                          onClick={() => {
-                            setCurrentPlaylist(null)
-                            setPlaylistIndex(0)
-                            if (audioRef.current) {
-                              audioRef.current.pause()
-                            }
-                          }}
-                        >
-                          Stop Playlist
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-                
-                {/* Clean Metadata Section - Spotify/Google Music style */}
-                <div className="player-metadata">
-                  <div className="player-metadata-grid">
-                    {selected.metadata?.artist && (
-                      <div className="player-metadata-item">
-                        <span className="player-metadata-label">Artist</span>
-                        <span className="player-metadata-value">{selected.metadata.artist}</span>
-                      </div>
-                    )}
-                    {selected.metadata?.album && (
-                      <div className="player-metadata-item">
-                        <span className="player-metadata-label">Album</span>
-                        <span className="player-metadata-value">{selected.metadata.album}</span>
-                      </div>
-                    )}
-                    {selected.metadata?.duration && (
-                      <div className="player-metadata-item">
-                        <span className="player-metadata-label">Duration</span>
-                        <span className="player-metadata-value">{formatDuration(selected.metadata.duration)}</span>
-                      </div>
-                    )}
-                    {selected.metadata?.year && (
-                      <div className="player-metadata-item">
-                        <span className="player-metadata-label">Year</span>
-                        <span className="player-metadata-value">{selected.metadata.year}</span>
-                      </div>
-                    )}
-                    {selected.metadata?.genre && (
-                      <div className="player-metadata-item">
-                        <span className="player-metadata-label">Genre</span>
-                        <span className="player-metadata-value">{selected.metadata.genre}</span>
-                      </div>
-                    )}
-                    <div className="player-metadata-item">
-                      <span className="player-metadata-label">Type</span>
-                      <span className="player-metadata-value">{selected.type === 'video' ? 'Video' : 'Audio'}</span>
-                    </div>
-                    <div className="player-metadata-item">
-                      <span className="player-metadata-label">Collection</span>
-                      <span className="player-metadata-value">{selected.collection}</span>
-                    </div>
-                  </div>
-                  
-                  {selected.metadata?.description && (
-                    <div className="player-description">
-                      <span className="player-description-label">Description</span>
-                      <p className="player-description-text">{selected.metadata.description}</p>
-                    </div>
-                  )}
-                  
-                  <details className="player-debug-details">
-                    <summary>Debug Info</summary>
-                    <div className="player-debug-content">
-                      <div><strong>Path:</strong> {selected.path}</div>
-                      <div><strong>URL:</strong> <a href={buildMediaUrl(selected.path)} target="_blank" rel="noopener noreferrer">{buildMediaUrl(selected.path)}</a></div>
-                    </div>
-                  </details>
-                </div>
-              </>
-            ) : (
-              <p className="empty-state">
-                Set <code>VITE_MEDIA_BASE_URL</code> in a <code>.env</code> file to stream from
-                your storage bucket.
-              </p>
-            )}
-
-            {selected.description && (
-              <div className="player-description">
-                <div className="player-description-label">Description:</div>
-                <div className="player-description-text">{selected.description}</div>
-              </div>
-            )}
-            {selected.metadata && (
-              <div className="player-metadata">
-                {selected.metadata.artist && (
-                  <div><strong>Artist:</strong> {selected.metadata.artist}</div>
-                )}
-                {selected.metadata.album && (
-                  <div><strong>Album:</strong> {selected.metadata.album}</div>
-                )}
-                {selected.metadata.year && (
-                  <div><strong>Year:</strong> {selected.metadata.year}</div>
-                )}
-                {selected.metadata.genre && (
-                  <div><strong>Genre:</strong> {selected.metadata.genre}</div>
-                )}
-                {selected.metadata.duration && (
-                  <div>
-                    <strong>Duration:</strong>{' '}
-                    {Math.floor(selected.metadata.duration / 60)}:
-                    {Math.floor(selected.metadata.duration % 60)
-                      .toString()
-                      .padStart(2, '0')}
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="player-footer-path">
-              <span>File:</span>
-              <code>{selected.path}</code>
-            </div>
+      <section className="section-block">
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">Collections</p>
+            <h2>Library folders</h2>
+          </div>
+          <div className="section-actions">
+            <input
+              type="search"
+              className="inline-search"
+              placeholder="Search folders or tracks…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button
+              type="button"
+              className="pill-button"
+              onClick={() => setActiveTab('favorites')}
+            >
+              ⭐ Favorites
+            </button>
           </div>
         </div>
+        <div className="collection-stack">
+          {renderCollectionTree(folderTree)}
+        </div>
+      </section>
+    </div>
+  )
+
+  const renderPlaylistsScreen = () => (
+    <div className="screen playlists-screen">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Playlists</p>
+          <h2>Craft your flow</h2>
+        </div>
+        <button
+          type="button"
+          className="pill-button primary"
+          onClick={handleCreatePlaylist}
+        >
+          + New Playlist
+        </button>
+      </div>
+
+      <div className="segmented-control">
+        <button
+          type="button"
+          className={playlistManagerTab === 'my' ? 'segment active' : 'segment'}
+          onClick={() => {
+            setPlaylistManagerTab('my')
+            resetPlaylistEditorState()
+          }}
+        >
+          My Playlists ({playlists.length})
+        </button>
+        <button
+          type="button"
+          className={playlistManagerTab === 'shared' ? 'segment active' : 'segment'}
+          onClick={() => {
+            setPlaylistManagerTab('shared')
+            resetPlaylistEditorState()
+          }}
+        >
+          Shared ({sharedPlaylists.length})
+        </button>
+      </div>
+
+      {editingPlaylist ? renderPlaylistEditorView() : (
+        <>
+          {renderPlaylistListView()}
+          {renderImportPanel()}
+        </>
       )}
+    </div>
+  )
+
+  const renderFavoritesScreen = () => (
+    <div className="screen favorites-screen">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Favorites</p>
+          <h2>Sacred saves</h2>
+        </div>
+        <p className="section-caption">{favorites.size} item{favorites.size !== 1 ? 's' : ''}</p>
+      </div>
+      <div className="collection-stack">
+        {renderFavoritesTree()}
+      </div>
+    </div>
+  )
+
+  const renderSharedScreen = () => (
+    <div className="screen shared-screen">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Shared</p>
+          <h2>Community playlists</h2>
+        </div>
+        <div className="connection-pill">
+          {sharedPlaylists.length ? 'Synced via Supabase' : 'Ready to sync'}
+        </div>
+      </div>
+      {sharedPlaylists.length ? (
+        <div className="shared-list">
+          {sharedPlaylists.map((playlist) => (
+            <div key={playlist.id} className="shared-card">
+              <div>
+                <div className="shared-card-name">{playlist.name}</div>
+                <div className="shared-card-meta">
+                  {playlist.items.length} item{playlist.items.length !== 1 ? 's' : ''}
+                  {(() => {
+                    const duration = getPlaylistDuration(playlist)
+                    return duration > 0 ? <span> • {formatDuration(duration)}</span> : null
+                  })()}
+                </div>
+              </div>
+              <div className="shared-card-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => handlePlayPlaylist(playlist)}
+                >
+                  ▶️ Play
+                </button>
+                <button
+                  type="button"
+                  className="pill-button"
+                  onClick={() => {
+                    setActiveTab('playlists')
+                    setEditingPlaylist(playlist)
+                    setPlaylistEditorStep('overview')
+                    setPlaylistManagerTab('shared')
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-state-card">No shared playlists yet. Share one from the Playlists tab.</p>
+      )}
+    </div>
+  )
+
+  const renderSearchScreen = () => (
+    <div className="screen search-screen">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Search</p>
+          <h2>Find anything</h2>
+        </div>
+      </div>
+      <div className="search-panel">
+        <input
+          type="search"
+          className="search-large"
+          placeholder="Track, folder, genre, year…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <div className="collection-stack">
+          {query ? renderCollectionTree(folderTree) : (
+            <p className="empty-state-card">Start typing to search across the entire library.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderActiveTab = () => {
+    switch (activeTab) {
+      case 'playlists':
+        return renderPlaylistsScreen()
+      case 'favorites':
+        return renderFavoritesScreen()
+      case 'shared':
+        return renderSharedScreen()
+      case 'search':
+        return renderSearchScreen()
+      case 'home':
+      default:
+        return renderHomeScreen()
+    }
+  }
+
+  const navItems: { id: typeof activeTab; label: string; icon: string }[] = [
+    { id: 'home', label: 'Home', icon: '🏠' },
+    { id: 'playlists', label: 'Playlists', icon: '🎧' },
+    { id: 'favorites', label: 'Favorites', icon: '⭐' },
+    { id: 'shared', label: 'Shared', icon: '🌐' },
+    { id: 'search', label: 'Search', icon: '🔍' },
+  ]
+
+  const renderMiniPlayer = () => {
+    if (!selected) return null
+    const isAudio = selected.type === 'audio'
+    const subtitle = currentPlaylist
+      ? `${currentPlaylist.name} • ${playlistIndex + 1}/${currentPlaylist.items.length}`
+      : selected.metadata?.artist || selected.collection
+
+    return (
+      <div className="mini-player" onClick={() => setIsFullPlayerVisible(true)}>
+        <div className="mini-art">{selected.type === 'video' ? '🎬' : '🎵'}</div>
+        <div className="mini-body">
+          <div className="mini-text">
+            <div className="mini-title">{selected.title}</div>
+            <div className="mini-subtitle">{subtitle}</div>
+          </div>
+          {isAudio && (
+            <div
+              className="mini-progress"
+              onClick={(e) => {
+                e.stopPropagation()
+              }}
+            >
+              <input
+                type="range"
+                min={0}
+                max={playbackDuration || 0}
+                step={0.1}
+                value={playbackDuration ? playbackPosition : 0}
+                onChange={(e) => handleSeek(Number(e.target.value))}
+                onPointerDown={(e) => e.stopPropagation()}
+                disabled={playbackDuration === 0}
+              />
+              <div className="mini-times">
+                <span>{formatClockTime(playbackPosition)}</span>
+                <span>{formatClockTime(playbackDuration)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mini-controls" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="transport-button"
+            onClick={handleSkipPrevious}
+            disabled={!canGoPrevious}
+            aria-label="Previous track"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 5h2v14H4V5z" fill="currentColor" />
+              <path d="M8 12l12-7v14L8 12z" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="transport-button primary"
+            onClick={() => {
+              if (selected.type === 'audio' && audioRef.current) {
+                if (isPlaying) {
+                  audioRef.current.pause()
+                } else {
+                  audioRef.current.play().catch((err) => console.error('Failed to play audio:', err))
+                }
+              } else if (selected.type === 'video' && videoRef.current) {
+                if (!videoRef.current.paused) {
+                  videoRef.current.pause()
+                } else {
+                  videoRef.current.play().catch((err) => console.error('Failed to play video:', err))
+                }
+              }
+            }}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M6 5h4v14H6V5z" fill="currentColor" />
+                <path d="M14 5h4v14h-4V5z" fill="currentColor" />
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 5v14l14-7L5 5z" fill="currentColor" />
+              </svg>
+            )}
+          </button>
+          <button
+            type="button"
+            className="transport-button"
+            onClick={handleSkipNext}
+            disabled={!canGoNext}
+            aria-label="Next track"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M4 5v14l12-7L4 5z" fill="currentColor" />
+              <path d="M18 5h2v14h-2V5z" fill="currentColor" />
+            </svg>
+          </button>
+          {isAudio && (
+            <button
+              type="button"
+              className={`transport-button ${loopMode !== 'none' ? 'loop-active' : ''}`}
+              onClick={cycleLoopMode}
+              title={loopMode === 'none' ? 'Enable repeat all' : loopMode === 'all' ? 'Enable repeat one' : 'Disable repeat'}
+              aria-label="Loop toggle"
+            >
+              {loopMode === 'one' ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
+                  <text x="12" y="14" textAnchor="middle" fontSize="8" fontWeight="bold" fill="currentColor">1</text>
+                </svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const renderFullPlayer = () => {
+    if (!selected) return null
+    const subtitle = currentPlaylist
+      ? `${currentPlaylist.name} • ${playlistIndex + 1}/${currentPlaylist.items.length}`
+      : selected.metadata?.artist || selected.collection
+
+    return (
+      <div
+        className={`player-layer ${isFullPlayerVisible ? 'visible' : ''}`}
+        onClick={() => setIsFullPlayerVisible(false)}
+      >
+        <div className="player-sheet" onClick={(e) => e.stopPropagation()}>
+          {/* Collapse handle */}
+          <button
+            type="button"
+            className="player-collapse-handle"
+            onClick={() => setIsFullPlayerVisible(false)}
+            aria-label="Minimize player"
+          >
+            <svg width="32" height="4" viewBox="0 0 32 4" fill="none">
+              <rect width="32" height="4" rx="2" fill="currentColor" opacity="0.4" />
+            </svg>
+          </button>
+
+          {/* Artwork */}
+          <div className="player-artwork">
+            {selected.type === 'video' ? (
+              MEDIA_BASE_URL ? (
+                <video
+                  ref={videoRef}
+                  className="player-artwork-video"
+                  src={buildMediaUrl(selected.path)}
+                  controls
+                  playsInline
+                  autoPlay
+                  loop={loopMode === 'one'}
+                  onError={(e) => {
+                    console.error('Video playback error:', e)
+                  }}
+                />
+              ) : (
+                <span className="player-artwork-emoji">🎬</span>
+              )
+            ) : (
+              <span className="player-artwork-emoji">🎵</span>
+            )}
+          </div>
+
+          {/* Track info */}
+          <div className="player-track-info">
+            <h2 className="player-track-title">{selected.title}</h2>
+            <p className="player-track-subtitle">{subtitle}</p>
+          </div>
+
+          {/* Audio controls - only for audio */}
+          {selected.type === 'audio' && MEDIA_BASE_URL && (
+            <>
+              {/* Hidden audio element */}
+              <audio
+                ref={audioRef}
+                src={buildMediaUrl(selected.path)}
+                autoPlay={currentPlaylist !== null || isPlaying}
+                loop={false}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => {
+                  if (currentPlaylist) return // Handled by useEffect
+                  if (loopMode === 'one' && audioRef.current) {
+                    audioRef.current.currentTime = 0
+                    audioRef.current.play().catch(() => {})
+                  } else if (loopMode === 'all') {
+                    // Go to next in library, loop back if at end
+                    if (libraryIndex < orderedItems.length - 1) {
+                      goToLibraryIndex(libraryIndex + 1)
+                    } else {
+                      goToLibraryIndex(0)
+                    }
+                  } else {
+                    setIsPlaying(false)
+                  }
+                }}
+                style={{ display: 'none' }}
+              />
+
+              {/* Progress bar */}
+              <div className="player-progress-section">
+                <input
+                  type="range"
+                  className="player-progress-bar"
+                  min={0}
+                  max={playbackDuration || 0}
+                  step={0.1}
+                  value={playbackDuration ? Math.min(playbackPosition, playbackDuration) : 0}
+                  onChange={(e) => handleSeek(Number(e.target.value))}
+                  disabled={playbackDuration === 0}
+                />
+                <div className="player-progress-times">
+                  <span>{formatClockTime(playbackPosition)}</span>
+                  <span>{formatClockTime(playbackDuration)}</span>
+                </div>
+              </div>
+
+              {/* Transport controls */}
+              <div className="player-transport-row">
+                <button
+                  type="button"
+                  className="transport-btn"
+                  onClick={handleSkipPrevious}
+                  disabled={!canGoPrevious}
+                  aria-label="Previous"
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 5h2v14H4V5z" fill="currentColor" />
+                    <path d="M8 12l12-7v14L8 12z" fill="currentColor" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="transport-btn transport-btn-primary"
+                  onClick={() => {
+                    if (audioRef.current) {
+                      if (isPlaying) {
+                        audioRef.current.pause()
+                      } else {
+                        audioRef.current.play().catch(() => {})
+                      }
+                    }
+                  }}
+                  aria-label={isPlaying ? 'Pause' : 'Play'}
+                >
+                  {isPlaying ? (
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                      <path d="M6 5h4v14H6V5z" fill="currentColor" />
+                      <path d="M14 5h4v14h-4V5z" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                      <path d="M5 5v14l14-7L5 5z" fill="currentColor" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="transport-btn"
+                  onClick={handleSkipNext}
+                  disabled={!canGoNext}
+                  aria-label="Next"
+                >
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 5v14l12-7L4 5z" fill="currentColor" />
+                    <path d="M18 5h2v14h-2V5z" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Secondary controls */}
+              <div className="player-secondary-controls">
+                <button
+                  type="button"
+                  className={`player-secondary-btn ${loopMode !== 'none' ? 'active' : ''}`}
+                  onClick={cycleLoopMode}
+                  aria-label="Loop"
+                >
+                  {loopMode === 'one' ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                      <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
+                      <text x="12" y="14" textAnchor="middle" fontSize="8" fontWeight="bold" fill="currentColor">1</text>
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                      <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
+                    </svg>
+                  )}
+                  <span>{loopMode === 'none' ? 'Repeat' : loopMode === 'all' ? 'Repeat all' : 'Repeat one'}</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Metadata section */}
+          <div className="player-meta-section">
+            {selected.metadata?.album && (
+              <div className="player-meta-row">
+                <span className="player-meta-label">Album</span>
+                <span className="player-meta-value">{selected.metadata.album}</span>
+              </div>
+            )}
+            {selected.metadata?.genre && (
+              <div className="player-meta-row">
+                <span className="player-meta-label">Genre</span>
+                <span className="player-meta-value">{selected.metadata.genre}</span>
+              </div>
+            )}
+            {selected.metadata?.year && (
+              <div className="player-meta-row">
+                <span className="player-meta-label">Year</span>
+                <span className="player-meta-value">{selected.metadata.year}</span>
+              </div>
+            )}
+            <div className="player-meta-row">
+              <span className="player-meta-label">Collection</span>
+              <span className="player-meta-value">{selected.collection}</span>
+            </div>
+          </div>
+
+          {!MEDIA_BASE_URL && (
+            <p className="player-no-media">
+              Set <code>VITE_MEDIA_BASE_URL</code> in your <code>.env</code> file to stream media.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app-shell">
+      <div className="app-gradient" aria-hidden="true" />
+      <div className="app-content">
+        <header className="shell-header">
+          <div>
+            <p className="eyebrow">Dr. Joe Dispenza</p>
+            <h1>Meditation &amp; Course Studio</h1>
+          </div>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setActiveTab('shared')}
+          >
+            Shared
+          </button>
+        </header>
+
+        <div className="banner-stack">
+          {showFeatureAnnouncement && (
+            <div className="app-banner feature">
+              <div>
+                <p className="banner-title">New: Favorites & Playlists</p>
+                <p>Tap ☆ to save tracks and manage seamless playlists inside the Playlists tab.</p>
+              </div>
+              <button type="button" className="pill-button" onClick={handleDismissFeatureAnnouncement}>
+                Got it
+              </button>
+            </div>
+          )}
+          {updateAvailable && (
+            <div className="app-banner update">
+              <div>
+                <p className="banner-title">Update {updateAvailable.version} ready</p>
+                <ul className="banner-changelog">
+                  {updateAvailable.changelog.map((change, index) => (
+                    <li key={index}>{change}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="banner-actions">
+                <button type="button" className="pill-button primary" onClick={handleUpdateRefresh}>
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    localStorage.setItem('drjoe-version', updateAvailable.version)
+                    setCurrentVersion(updateAvailable.version)
+                    setUpdateAvailable(null)
+                  }}
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {renderActiveTab()}
+      </div>
+
+      {renderMiniPlayer()}
+
+      <nav className="bottom-nav">
+        {navItems.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={tab.id === activeTab ? 'bottom-nav-button active' : 'bottom-nav-button'}
+            onClick={() => {
+              setActiveTab(tab.id)
+              if (tab.id !== 'playlists') {
+                resetPlaylistEditorState()
+              }
+            }}
+          >
+            <span className="nav-icon">{tab.icon}</span>
+            <span className="nav-label">{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {renderFullPlayer()}
     </div>
   )
 }

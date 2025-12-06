@@ -118,3 +118,4 @@ CREATE POLICY "Anyone can delete shared playlists"
 
 Check the full setup guide in `SUPABASE_SETUP.md` for more details.
 
+

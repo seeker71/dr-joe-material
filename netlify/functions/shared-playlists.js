@@ -50,7 +50,6 @@ async function writePlaylist(playlist) {
           id: playlist.id,
           name: playlist.name,
           items: playlist.items,
-          shared: true,
           share_id: playlist.shareId,
           updated_at: new Date().toISOString(),
         }, {

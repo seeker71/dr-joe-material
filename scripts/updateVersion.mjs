@@ -50,3 +50,4 @@ const changelogEntry = changelogParts.join(' ');
 updateVersion(version, changelogEntry);
 
 
+

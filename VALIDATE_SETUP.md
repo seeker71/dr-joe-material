@@ -145,3 +145,4 @@ SELECT EXISTS (
 
 Once all checks pass, your Supabase setup is complete! 🎉
 
+
