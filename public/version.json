@@ -1,11 +1,11 @@
 {
-  "version": "1.2.0",
-  "updated": "2025-01-27T00:00:00Z",
+  "version": "1.2.1",
+  "updated": "2025-12-24T23:55:54.470Z",
   "changelog": [
+    "Added new media files + regenerated catalog",
     "Enhanced playlist editor with tree view - see folder structure when adding items",
     "Added search functionality to playlist editor - search by folder or item name",
     "Added genre filtering to playlist editor - filter available items by genre",
     "Improved playlist add items interface with better organization and context"
   ]
 }
-

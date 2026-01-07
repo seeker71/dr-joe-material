@@ -540,10 +540,10 @@
     }
   },
   {
-    "id": "bedtime-breath-of-life-m4a",
-    "title": "Bedtime Breath of Life",
-    "path": "Bedtime Breath of Life.m4a",
-    "collection": "Bedtime Breath of Life.m4a",
+    "id": "bedtime-breath-of-life-with-introduction-m4a",
+    "title": "Bedtime Breath of Life with Introduction",
+    "path": "Bedtime Breath of Life with Introduction.m4a",
+    "collection": "Bedtime Breath of Life with Introduction.m4a",
     "type": "audio",
     "metadata": {
       "artist": null,
@@ -1182,6 +1182,246 @@
       "duration": 29.962448979591837,
       "year": null,
       "genre": "Audiobook"
+    }
+  },
+  {
+    "id": "count-your-blessings-1st-energy-center-1-first-energy-center-lesson-mp3",
+    "title": "Count Your Blessings I – Audio Lesson for the First Energy Center",
+    "path": "Count your blessings/1st Energy Center/1 - First Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-23-6",
+      "duration": 1063.7061224489796,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-1st-energy-center-1-first-energy-center-meditation-mp3",
+    "title": "Count Your Blessings I – Guided Meditation for the First Energy Center",
+    "path": "Count your blessings/1st Energy Center/1 - First Energy Center Meditation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-23-6",
+      "duration": 1733.5118367346938,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-2nd-energy-center-2-second-energy-center-lesson-mp3",
+    "title": "Count Your Blessings II – Audio Lesson for the Second Energy Center",
+    "path": "Count your blessings/2nd Energy Center/2 - Second Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-22-9",
+      "duration": 1185.1232653061224,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-2nd-energy-center-2-second-energy-center-meditiation-mp3",
+    "title": "Count Your Blessings II – Guided Meditation for the Second Energy Center",
+    "path": "Count your blessings/2nd Energy Center/2 - Second Energy Center Meditiation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-22-9",
+      "duration": 1588.5322448979591,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-3rd-energy-center-3-third-energy-center-lesson-mp3",
+    "title": "Count Your Blessings III – Audio Lesson for the Third Energy Center",
+    "path": "Count your blessings/3rd Energy Center/3 - Third Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-21-2",
+      "duration": 1210.5404081632653,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-3rd-energy-center-3-third-energy-center-meditiation-mp3",
+    "title": "Count Your Blessings III – Guided Meditation for the Third Energy Center",
+    "path": "Count your blessings/3rd Energy Center/3 - Third Energy Center Meditiation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-21-2",
+      "duration": 1816.2155102040817,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-4th-energy-center-4-fourth-energy-center-lesson-mp3",
+    "title": "Count Your Blessings IV – Audio Lesson for the Fourth Energy Center",
+    "path": "Count your blessings/4th Energy Center/4 - Fourth Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-20-5",
+      "duration": 1057.6195918367348,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-4th-energy-center-4-fourth-energy-center-meditiation-mp3",
+    "title": "Count Your Blessings IV – Guided Meditation for the Fourth Energy Center",
+    "path": "Count your blessings/4th Energy Center/4 - Fourth Energy Center Meditiation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-20-5",
+      "duration": 1587.5395918367346,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-5th-energy-center-5-fifth-energy-center-lesson-mp3",
+    "title": "Count Your Blessings V – Audio Lesson for the Fifth Energy Center",
+    "path": "Count your blessings/5th Energy Center/5 - Fifth Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-19-9",
+      "duration": 1136.0391836734693,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-5th-energy-center-5-fifth-energy-center-meditiation-mp3",
+    "title": "Count Your Blessings V – Guided Meditation for the Fifth Energy Center",
+    "path": "Count your blessings/5th Energy Center/5 - Fifth Energy Center Meditiation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-19-9",
+      "duration": 1421.0351020408164,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-6th-energy-center-6-sixth-energy-center-lesson-mp3",
+    "title": "Count Your Blessings VI – Audio Lesson for the Sixth Energy Center",
+    "path": "Count your blessings/6th Energy Center/6 - Sixth Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-18-2",
+      "duration": 1764.0489795918368,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-6th-energy-center-6-sixth-energy-center-meditation-mp3",
+    "title": "Count Your Blessings VI – Guided Meditation for the Sixth Energy Center",
+    "path": "Count your blessings/6th Energy Center/6 - Sixth Energy Center Meditation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-18-2",
+      "duration": 1811.774693877551,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-7th-energy-center-7-seventh-energy-center-lesson-mp3",
+    "title": "Count Your Blessings VII – Audio Lesson for the Seventh Energy Center",
+    "path": "Count your blessings/7th Energy Center/7 - Seventh Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-17-5",
+      "duration": 1388.0424489795919,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-7th-energy-center-7-seventh-energy-center-meditation-mp3",
+    "title": "Count Your Blessings VII – Guided Meditation for the Seventh Energy Center",
+    "path": "Count your blessings/7th Energy Center/7 - Seventh Energy Center Meditation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-17-5",
+      "duration": 1847.9020408163265,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-8th-energy-center-8-eighth-energy-center-lesson-mp3",
+    "title": "Count Your Blessings VIII – Audio Lesson for the Eighth Energy Center",
+    "path": "Count your blessings/8th Energy Center/8 - Eighth Energy Center Lesson.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-16-8",
+      "duration": 1208.0326530612244,
+      "year": 2025,
+      "genre": "Meditation"
+    }
+  },
+  {
+    "id": "count-your-blessings-8th-energy-center-8-eighth-energy-center-meditation-mp3",
+    "title": "Count Your Blessings VIII – Guided Meditation for the Eighth Energy Center",
+    "path": "Count your blessings/8th Energy Center/8 - Eighth Energy Center Meditation.mp3",
+    "collection": "Count your blessings",
+    "type": "audio",
+    "metadata": {
+      "artist": "Dr Joe Dispenza",
+      "album": "Count Your Blessings",
+      "description": "978-1-964797-16-8",
+      "duration": 1482.109387755102,
+      "year": 2025,
+      "genre": "Meditation"
     }
   },
   {
@@ -3852,6 +4092,21 @@
       "duration": 4463.438367346938,
       "year": 2020,
       "genre": "Meditation"
+    }
+  },
+  {
+    "id": "wm13-the-mystics-walk-ld-1-m4a",
+    "title": "WM13 The Mystics Walk (LD) 1",
+    "path": "WM13 The Mystics Walk (LD)-1.m4a",
+    "collection": "WM13 The Mystics Walk (LD)-1.m4a",
+    "type": "audio",
+    "metadata": {
+      "artist": null,
+      "album": null,
+      "description": null,
+      "duration": 4222.5255328798185,
+      "year": null,
+      "genre": null
     }
   },
   {

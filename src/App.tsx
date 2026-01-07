@@ -510,8 +510,8 @@ function App() {
   const [shouldAutoPlay, setShouldAutoPlay] = useState(false)
   const [hasEnsuredMorningPlaylist, setHasEnsuredMorningPlaylist] = useState(false)
   const playlistAddTreeRef = useRef<HTMLDivElement | null>(null)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
+  // Single media element for both audio + video (critical for iOS Safari stability)
+  const mediaRef = useRef<HTMLVideoElement | null>(null)
   const versionCheckIntervalRef = useRef<number | null>(null)
   const currentVersionRef = useRef<string | null>(null)
   const playlistEditorSteps = [
@@ -723,29 +723,6 @@ function App() {
   const folderTree = useMemo(() => buildFolderTree(items), [items])
 
   useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) {
-      setPlaybackPosition(0)
-      setPlaybackDuration(0)
-      return
-    }
-
-    const handleTimeUpdate = () => {
-      setPlaybackPosition(audio.currentTime || 0)
-      setPlaybackDuration(audio.duration || 0)
-    }
-
-    audio.addEventListener('timeupdate', handleTimeUpdate)
-    audio.addEventListener('loadedmetadata', handleTimeUpdate)
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate)
-      audio.removeEventListener('loadedmetadata', handleTimeUpdate)
-    }
-  }, [selectedId])
-
-
-  useEffect(() => {
     if (!selectedId) {
       setIsFullPlayerVisible(false)
     }
@@ -828,9 +805,10 @@ function App() {
 
   const handleSkipPrevious = () => {
     if (!selected) return
-    if (selected.type === 'audio' && audioRef.current && audioRef.current.currentTime > 3) {
-      audioRef.current.currentTime = 0
-      audioRef.current.play().catch((err) => console.error('Failed to restart audio:', err))
+    // If we're a few seconds in, restart instead of going to previous item
+    if (mediaRef.current && mediaRef.current.currentTime > 3) {
+      mediaRef.current.currentTime = 0
+      mediaRef.current.play().catch((err) => console.error('Failed to restart media:', err))
       return
     }
     if (currentPlaylist) {
@@ -942,9 +920,7 @@ function App() {
     if (currentPlaylist?.id === playlistId) {
       setCurrentPlaylist(null)
       setPlaylistIndex(0)
-      if (audioRef.current) {
-        audioRef.current.pause()
-      }
+      mediaRef.current?.pause()
     }
     if (isShared) {
       const success = await deleteSharedPlaylist(playlistId)
@@ -1059,49 +1035,6 @@ function App() {
     }
   }
 
-  // Handle seamless playlist playback with loop support
-  useEffect(() => {
-    if (!currentPlaylist || !audioRef.current) return
-
-    const audio = audioRef.current
-    const handleEnded = () => {
-      // Loop one: restart current track
-      if (loopMode === 'one') {
-        audio.currentTime = 0
-        audio.play().catch((err) => {
-          console.error('Loop play failed:', err)
-        })
-        return
-      }
-
-      // Move to next item
-      const nextIndex = playlistIndex + 1
-      if (nextIndex < currentPlaylist.items.length) {
-        const nextItem = items.find((item) => item.id === currentPlaylist.items[nextIndex].itemId)
-        if (nextItem) {
-          setPlaylistIndex(nextIndex)
-          setSelectedId(nextItem.id)
-        }
-      } else if (loopMode === 'all') {
-        // Loop all: go back to beginning
-        const firstItem = items.find((item) => item.id === currentPlaylist.items[0].itemId)
-        if (firstItem) {
-          setPlaylistIndex(0)
-          setSelectedId(firstItem.id)
-        }
-      } else {
-        // No loop: playlist finished
-        setIsPlaying(false)
-        setCurrentPlaylist(null)
-        setPlaylistIndex(0)
-      }
-    }
-
-    audio.addEventListener('ended', handleEnded)
-    return () => {
-      audio.removeEventListener('ended', handleEnded)
-    }
-  }, [currentPlaylist, playlistIndex, items, loopMode])
 
   const handleToggleFolder = (path: string) => {
     setExpandedFolders((prev) => {
@@ -1138,6 +1071,190 @@ function App() {
     return orderedItems.findIndex((item) => item.id === selected.id)
   }, [orderedItems, selected])
 
+  const selectedMediaUrl = useMemo(() => {
+    if (!selected || !MEDIA_BASE_URL) return ''
+    return buildMediaUrl(selected.path)
+  }, [selected?.id, selected?.path])
+
+  const requestMediaFullscreen = useCallback(() => {
+    const media = mediaRef.current
+    if (!media) return
+    const anyMedia = media as any
+
+    // iOS Safari: native fullscreen API for <video> (requires user gesture)
+    if (typeof anyMedia.webkitEnterFullscreen === 'function') {
+      try {
+        anyMedia.webkitEnterFullscreen()
+      } catch {
+        // ignore
+      }
+      return
+    }
+
+    // Standard fullscreen API
+    const anyEl = media as any
+    const req =
+      media.requestFullscreen ||
+      anyEl.webkitRequestFullscreen ||
+      anyEl.mozRequestFullScreen ||
+      anyEl.msRequestFullscreen
+
+    if (typeof req === 'function') {
+      try {
+        req.call(media)
+      } catch {
+        // ignore
+      }
+    }
+  }, [])
+
+  // Best-effort: exit fullscreen when rotating back to portrait
+  useEffect(() => {
+    if (!(isFullPlayerVisible && selected?.type === 'video')) return
+
+    const handleOrientationChange = () => {
+      const isPortrait = window.matchMedia('(orientation: portrait)').matches
+      if (!isPortrait) return
+
+      const anyDoc = document as any
+      const exit =
+        document.exitFullscreen ||
+        anyDoc.webkitExitFullscreen ||
+        anyDoc.mozCancelFullScreen ||
+        anyDoc.msExitFullscreen
+      const fullscreenEl =
+        document.fullscreenElement ||
+        anyDoc.webkitFullscreenElement ||
+        anyDoc.mozFullScreenElement ||
+        anyDoc.msFullscreenElement
+
+      if (fullscreenEl && typeof exit === 'function') {
+        try {
+          exit.call(document)
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    window.addEventListener('orientationchange', handleOrientationChange)
+    return () => {
+      window.removeEventListener('orientationchange', handleOrientationChange)
+    }
+  }, [isFullPlayerVisible, selected?.type])
+
+  // Keep the single media element in sync with selected item
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media) return
+
+    if (!selectedMediaUrl) {
+      // Stop and reset when nothing is selected (or no media base URL)
+      if (media.src) {
+        media.pause()
+        media.removeAttribute('src')
+        media.load()
+      }
+      setIsPlaying(false)
+      setPlaybackPosition(0)
+      setPlaybackDuration(0)
+      setShouldAutoPlay(false)
+      return
+    }
+
+    const srcChanged = media.src !== selectedMediaUrl
+    if (srcChanged) {
+      media.src = selectedMediaUrl
+      media.load()
+      media.currentTime = 0
+      setPlaybackPosition(0)
+      setPlaybackDuration(0)
+    }
+
+    if (shouldAutoPlay) {
+      media.play().catch((err) => {
+        console.debug('Auto-play failed:', err)
+      })
+      setShouldAutoPlay(false)
+    }
+  }, [selectedMediaUrl, shouldAutoPlay])
+
+  // Centralized media event listeners (single source of truth)
+  useEffect(() => {
+    const media = mediaRef.current
+    if (!media) return
+
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+    const handleTimeUpdate = () => setPlaybackPosition(media.currentTime || 0)
+    const handleLoadedMetadata = () => {
+      if (media.duration && !Number.isNaN(media.duration)) {
+        setPlaybackDuration(media.duration)
+      } else {
+        setPlaybackDuration(0)
+      }
+    }
+    const handleEnded = () => {
+      // Repeat one
+      if (loopMode === 'one') {
+        media.currentTime = 0
+        media.play().catch(() => {})
+        return
+      }
+
+      // Playlist playback
+      if (currentPlaylist) {
+        const nextIndex = playlistIndex + 1
+        if (nextIndex < currentPlaylist.items.length) {
+          setPlaylistIndex(nextIndex)
+          setSelectedId(currentPlaylist.items[nextIndex].itemId)
+          setShouldAutoPlay(true)
+          return
+        }
+        if (loopMode === 'all' && currentPlaylist.items.length > 0) {
+          setPlaylistIndex(0)
+          setSelectedId(currentPlaylist.items[0].itemId)
+          setShouldAutoPlay(true)
+          return
+        }
+        setIsPlaying(false)
+        setCurrentPlaylist(null)
+        setPlaylistIndex(0)
+        return
+      }
+
+      // Library browsing
+      if (!selected) {
+        setIsPlaying(false)
+        return
+      }
+      const currentIndex = orderedItems.findIndex((item) => item.id === selected.id)
+      if (currentIndex >= 0 && currentIndex < orderedItems.length - 1) {
+        goToLibraryIndex(currentIndex + 1)
+        return
+      }
+      if (loopMode === 'all' && orderedItems.length > 0) {
+        goToLibraryIndex(0)
+        return
+      }
+      setIsPlaying(false)
+    }
+
+    media.addEventListener('play', handlePlay)
+    media.addEventListener('pause', handlePause)
+    media.addEventListener('timeupdate', handleTimeUpdate)
+    media.addEventListener('loadedmetadata', handleLoadedMetadata)
+    media.addEventListener('ended', handleEnded)
+
+    return () => {
+      media.removeEventListener('play', handlePlay)
+      media.removeEventListener('pause', handlePause)
+      media.removeEventListener('timeupdate', handleTimeUpdate)
+      media.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      media.removeEventListener('ended', handleEnded)
+    }
+  }, [loopMode, currentPlaylist, playlistIndex, orderedItems, selected, goToLibraryIndex])
+
   useEffect(() => {
     if (!selected?.path) return
     const folders = selected.path.split('/').slice(0, -1)
@@ -1156,24 +1273,6 @@ function App() {
       return updated ? next : prev
     })
   }, [selected?.path])
-
-  useEffect(() => {
-    if (!selected || selected.type !== 'audio') {
-      setPlaybackPosition(0)
-      setPlaybackDuration(0)
-    }
-  }, [selected?.id, selected?.type])
-
-  useEffect(() => {
-    if (!shouldAutoPlay) return
-    if (selected?.type === 'audio' && audioRef.current) {
-      audioRef.current
-        .play()
-        .then(() => setIsPlaying(true))
-        .catch((err) => console.error('Auto play failed:', err))
-    }
-    setShouldAutoPlay(false)
-  }, [shouldAutoPlay, selected?.id, selected?.type])
 
   useEffect(() => {
     if (hasEnsuredMorningPlaylist || ensuringMorningRef.current) return
@@ -1226,27 +1325,6 @@ function App() {
     hasEnsuredMorningPlaylist,
     fetchSharedPlaylists,
   ])
-
-  // Update audio src when playlist index changes and auto-play next track
-  useEffect(() => {
-    if (currentPlaylist && audioRef.current && selected) {
-      const currentPlaylistItem = currentPlaylist.items[playlistIndex]
-      if (currentPlaylistItem && currentPlaylistItem.itemId === selected.id) {
-        const url = buildMediaUrl(selected.path)
-        if (url) {
-          // Only update if src has changed
-          if (audioRef.current.src !== url) {
-            audioRef.current.src = url
-            audioRef.current.load()
-            // Auto-play the next track in playlist
-            audioRef.current.play().catch((err) => {
-              console.error('Auto-play failed (may require user interaction):', err)
-            })
-          }
-        }
-      }
-    }
-  }, [currentPlaylist, playlistIndex, selected])
 
   // Expand all folders when searching
   useEffect(() => {
@@ -1480,8 +1558,9 @@ function App() {
   }
 
   const handleSeek = (value: number) => {
-    if (audioRef.current && !Number.isNaN(value)) {
-      audioRef.current.currentTime = value
+    if (Number.isNaN(value)) return
+    if (mediaRef.current) {
+      mediaRef.current.currentTime = value
     }
     setPlaybackPosition(value)
   }
@@ -2018,13 +2097,6 @@ function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <button
-              type="button"
-              className="pill-button"
-              onClick={() => setActiveTab('favorites')}
-            >
-              ⭐ Favorites
-            </button>
           </div>
         </div>
         <div className="collection-stack">
@@ -2202,50 +2274,55 @@ function App() {
   ]
 
   const renderMiniPlayer = () => {
-    if (!selected) return null
-    const isAudio = selected.type === 'audio'
-    const subtitle = currentPlaylist
-      ? `${currentPlaylist.name} • ${playlistIndex + 1}/${currentPlaylist.items.length}`
-      : selected.metadata?.artist || selected.collection
+    const hasSelection = Boolean(selected)
+    const subtitle = !hasSelection
+      ? 'Select a track to start'
+      : currentPlaylist
+        ? `${currentPlaylist.name} • ${playlistIndex + 1}/${currentPlaylist.items.length}`
+        : selected?.metadata?.artist || selected?.collection || ''
 
     return (
-      <div className="mini-player" onClick={() => setIsFullPlayerVisible(true)}>
-        <div className="mini-art">{selected.type === 'video' ? '🎬' : '🎵'}</div>
+      <div
+        className="mini-player"
+        onClick={() => {
+          if (hasSelection) setIsFullPlayerVisible(true)
+        }}
+      >
+        <div className="mini-art">{hasSelection ? (selected!.type === 'video' ? '🎬' : '🎵') : '🎧'}</div>
         <div className="mini-body">
           <div className="mini-text">
-            <div className="mini-title">{selected.title}</div>
+            <div className="mini-title">{hasSelection ? selected!.title : 'Nothing playing'}</div>
             <div className="mini-subtitle">{subtitle}</div>
           </div>
-          {isAudio && (
-            <div
-              className="mini-progress"
-              onClick={(e) => {
-                e.stopPropagation()
-              }}
-            >
-              <input
-                type="range"
-                min={0}
-                max={playbackDuration || 0}
-                step={0.1}
-                value={playbackDuration ? playbackPosition : 0}
-                onChange={(e) => handleSeek(Number(e.target.value))}
-                onPointerDown={(e) => e.stopPropagation()}
-                disabled={playbackDuration === 0}
-              />
-              <div className="mini-times">
-                <span>{formatClockTime(playbackPosition)}</span>
-                <span>{formatClockTime(playbackDuration)}</span>
-              </div>
+          {/* Time slider - for all items (audio and video) */}
+          <div
+            className="mini-progress"
+            onClick={(e) => {
+              e.stopPropagation()
+            }}
+          >
+            <input
+              type="range"
+              min={0}
+              max={playbackDuration || 0}
+              step={0.1}
+              value={playbackDuration ? playbackPosition : 0}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+              onPointerDown={(e) => e.stopPropagation()}
+              disabled={playbackDuration === 0}
+            />
+            <div className="mini-times">
+              <span>{formatClockTime(playbackPosition)}</span>
+              <span>{formatClockTime(playbackDuration)}</span>
             </div>
-          )}
+          </div>
         </div>
         <div className="mini-controls" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className="transport-button"
             onClick={handleSkipPrevious}
-            disabled={!canGoPrevious}
+            disabled={!hasSelection || !canGoPrevious}
             aria-label="Previous track"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2257,21 +2334,17 @@ function App() {
             type="button"
             className="transport-button primary"
             onClick={() => {
-              if (selected.type === 'audio' && audioRef.current) {
-                if (isPlaying) {
-                  audioRef.current.pause()
-                } else {
-                  audioRef.current.play().catch((err) => console.error('Failed to play audio:', err))
-                }
-              } else if (selected.type === 'video' && videoRef.current) {
-                if (!videoRef.current.paused) {
-                  videoRef.current.pause()
-                } else {
-                  videoRef.current.play().catch((err) => console.error('Failed to play video:', err))
-                }
+              if (!hasSelection) return
+              const media = mediaRef.current
+              if (!media) return
+              if (media.paused) {
+                media.play().catch((err) => console.error('Failed to play:', err))
+              } else {
+                media.pause()
               }
             }}
             aria-label={isPlaying ? 'Pause' : 'Play'}
+            disabled={!hasSelection || !selectedMediaUrl}
           >
             {isPlaying ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2288,7 +2361,7 @@ function App() {
             type="button"
             className="transport-button"
             onClick={handleSkipNext}
-            disabled={!canGoNext}
+            disabled={!hasSelection || !canGoNext}
             aria-label="Next track"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -2296,14 +2369,14 @@ function App() {
               <path d="M18 5h2v14h-2V5z" fill="currentColor" />
             </svg>
           </button>
-          {isAudio && (
-            <button
-              type="button"
-              className={`transport-button ${loopMode !== 'none' ? 'loop-active' : ''}`}
-              onClick={cycleLoopMode}
-              title={loopMode === 'none' ? 'Enable repeat all' : loopMode === 'all' ? 'Enable repeat one' : 'Disable repeat'}
-              aria-label="Loop toggle"
-            >
+          {/* Loop button - for all items */}
+          <button
+            type="button"
+            className={`transport-button ${loopMode !== 'none' ? 'loop-active' : ''}`}
+            onClick={cycleLoopMode}
+            title={loopMode === 'none' ? 'Enable repeat all' : loopMode === 'all' ? 'Enable repeat one' : 'Disable repeat'}
+            aria-label="Loop toggle"
+          >
               {loopMode === 'one' ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
@@ -2314,26 +2387,84 @@ function App() {
                   <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
                 </svg>
               )}
-            </button>
-          )}
+          </button>
+          <button
+            type="button"
+            className="transport-button"
+            onClick={() => {
+              if (hasSelection) setIsFullPlayerVisible(true)
+            }}
+            disabled={!hasSelection}
+            aria-label="Expand player"
+            title="Expand player"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
         </div>
       </div>
     )
   }
 
   const renderFullPlayer = () => {
-    if (!selected) return null
+    if (!isFullPlayerVisible) return null
+
+    // Empty expanded state
+    if (!selected) {
+      return (
+        <div className="player-layer visible" onClick={() => setIsFullPlayerVisible(false)}>
+          <div className="player-sheet" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="player-collapse-handle"
+              onClick={() => setIsFullPlayerVisible(false)}
+              aria-label="Minimize player"
+            >
+              <svg width="32" height="4" viewBox="0 0 32 4" fill="none">
+                <rect width="32" height="4" rx="2" fill="currentColor" opacity="0.4" />
+              </svg>
+            </button>
+            <p className="empty-state-card">Select a track to start playing.</p>
+          </div>
+        </div>
+      )
+    }
+
+    // Video expanded: full-screen video element with minimal overlay
+    if (selected.type === 'video') {
+      return (
+        <>
+          <div className="player-video-backdrop" />
+          <button
+            type="button"
+            className="player-video-close"
+            onClick={() => setIsFullPlayerVisible(false)}
+            aria-label="Close video"
+          >
+            ✕
+          </button>
+          <button
+            type="button"
+            className="player-video-fullscreen"
+            onClick={requestMediaFullscreen}
+            aria-label="Full screen"
+            title="Full screen"
+          >
+            ⛶
+          </button>
+        </>
+      )
+    }
+
     const subtitle = currentPlaylist
       ? `${currentPlaylist.name} • ${playlistIndex + 1}/${currentPlaylist.items.length}`
       : selected.metadata?.artist || selected.collection
 
+    // Audio expanded: detail sheet
     return (
-      <div
-        className={`player-layer ${isFullPlayerVisible ? 'visible' : ''}`}
-        onClick={() => setIsFullPlayerVisible(false)}
-      >
+      <div className="player-layer visible" onClick={() => setIsFullPlayerVisible(false)}>
         <div className="player-sheet" onClick={(e) => e.stopPropagation()}>
-          {/* Collapse handle */}
           <button
             type="button"
             className="player-collapse-handle"
@@ -2345,162 +2476,95 @@ function App() {
             </svg>
           </button>
 
-          {/* Artwork */}
           <div className="player-artwork">
-            {selected.type === 'video' ? (
-              MEDIA_BASE_URL ? (
-                <video
-                  ref={videoRef}
-                  className="player-artwork-video"
-                  src={buildMediaUrl(selected.path)}
-                  controls
-                  playsInline
-                  autoPlay
-                  loop={loopMode === 'one'}
-                  onError={(e) => {
-                    console.error('Video playback error:', e)
-                  }}
-                />
-              ) : (
-                <span className="player-artwork-emoji">🎬</span>
-              )
-            ) : (
-              <span className="player-artwork-emoji">🎵</span>
-            )}
+            <span className="player-artwork-emoji">🎵</span>
           </div>
 
-          {/* Track info */}
           <div className="player-track-info">
             <h2 className="player-track-title">{selected.title}</h2>
             <p className="player-track-subtitle">{subtitle}</p>
           </div>
 
-          {/* Audio controls - only for audio */}
-          {selected.type === 'audio' && MEDIA_BASE_URL && (
-            <>
-              {/* Hidden audio element */}
-              <audio
-                ref={audioRef}
-                src={buildMediaUrl(selected.path)}
-                autoPlay={currentPlaylist !== null || isPlaying}
-                loop={false}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onEnded={() => {
-                  if (currentPlaylist) return // Handled by useEffect
-                  if (loopMode === 'one' && audioRef.current) {
-                    audioRef.current.currentTime = 0
-                    audioRef.current.play().catch(() => {})
-                  } else if (loopMode === 'all') {
-                    // Go to next in library, loop back if at end
-                    if (libraryIndex < orderedItems.length - 1) {
-                      goToLibraryIndex(libraryIndex + 1)
-                    } else {
-                      goToLibraryIndex(0)
-                    }
-                  } else {
-                    setIsPlaying(false)
-                  }
-                }}
-                style={{ display: 'none' }}
-              />
+          <div className="player-progress-section">
+            <input
+              type="range"
+              className="player-progress-bar"
+              min={0}
+              max={playbackDuration || 0}
+              step={0.1}
+              value={playbackDuration ? Math.min(playbackPosition, playbackDuration) : 0}
+              onChange={(e) => handleSeek(Number(e.target.value))}
+              disabled={playbackDuration === 0}
+            />
+            <div className="player-progress-times">
+              <span>{formatClockTime(playbackPosition)}</span>
+              <span>{formatClockTime(playbackDuration)}</span>
+            </div>
+          </div>
 
-              {/* Progress bar */}
-              <div className="player-progress-section">
-                <input
-                  type="range"
-                  className="player-progress-bar"
-                  min={0}
-                  max={playbackDuration || 0}
-                  step={0.1}
-                  value={playbackDuration ? Math.min(playbackPosition, playbackDuration) : 0}
-                  onChange={(e) => handleSeek(Number(e.target.value))}
-                  disabled={playbackDuration === 0}
-                />
-                <div className="player-progress-times">
-                  <span>{formatClockTime(playbackPosition)}</span>
-                  <span>{formatClockTime(playbackDuration)}</span>
-                </div>
-              </div>
+          <div className="player-transport-row">
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={handleSkipPrevious}
+              disabled={!canGoPrevious}
+              aria-label="Previous"
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M4 5h2v14H4V5z" fill="currentColor" />
+                <path d="M8 12l12-7v14L8 12z" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="transport-btn transport-btn-primary"
+              onClick={() => {
+                const media = mediaRef.current
+                if (!media) return
+                if (media.paused) {
+                  media.play().catch(() => {})
+                } else {
+                  media.pause()
+                }
+              }}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <path d="M6 5h4v14H6V5z" fill="currentColor" />
+                  <path d="M14 5h4v14h-4V5z" fill="currentColor" />
+                </svg>
+              ) : (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                  <path d="M5 5v14l14-7L5 5z" fill="currentColor" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="transport-btn"
+              onClick={handleSkipNext}
+              disabled={!canGoNext}
+              aria-label="Next"
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M4 5v14l12-7L4 5z" fill="currentColor" />
+                <path d="M18 5h2v14h-2V5z" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
 
-              {/* Transport controls */}
-              <div className="player-transport-row">
-                <button
-                  type="button"
-                  className="transport-btn"
-                  onClick={handleSkipPrevious}
-                  disabled={!canGoPrevious}
-                  aria-label="Previous"
-                >
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 5h2v14H4V5z" fill="currentColor" />
-                    <path d="M8 12l12-7v14L8 12z" fill="currentColor" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="transport-btn transport-btn-primary"
-                  onClick={() => {
-                    if (audioRef.current) {
-                      if (isPlaying) {
-                        audioRef.current.pause()
-                      } else {
-                        audioRef.current.play().catch(() => {})
-                      }
-                    }
-                  }}
-                  aria-label={isPlaying ? 'Pause' : 'Play'}
-                >
-                  {isPlaying ? (
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                      <path d="M6 5h4v14H6V5z" fill="currentColor" />
-                      <path d="M14 5h4v14h-4V5z" fill="currentColor" />
-                    </svg>
-                  ) : (
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-                      <path d="M5 5v14l14-7L5 5z" fill="currentColor" />
-                    </svg>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="transport-btn"
-                  onClick={handleSkipNext}
-                  disabled={!canGoNext}
-                  aria-label="Next"
-                >
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 5v14l12-7L4 5z" fill="currentColor" />
-                    <path d="M18 5h2v14h-2V5z" fill="currentColor" />
-                  </svg>
-                </button>
-              </div>
+          <div className="player-secondary-controls">
+            <button
+              type="button"
+              className={`player-secondary-btn ${loopMode !== 'none' ? 'active' : ''}`}
+              onClick={cycleLoopMode}
+              aria-label="Loop"
+            >
+              <span>{loopMode === 'none' ? 'Repeat' : loopMode === 'all' ? 'Repeat all' : 'Repeat one'}</span>
+            </button>
+          </div>
 
-              {/* Secondary controls */}
-              <div className="player-secondary-controls">
-                <button
-                  type="button"
-                  className={`player-secondary-btn ${loopMode !== 'none' ? 'active' : ''}`}
-                  onClick={cycleLoopMode}
-                  aria-label="Loop"
-                >
-                  {loopMode === 'one' ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
-                      <text x="12" y="14" textAnchor="middle" fontSize="8" fontWeight="bold" fill="currentColor">1</text>
-                    </svg>
-                  ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <path d="M17 2l4 4-4 4V7H9c-2.76 0-5 2.24-5 5 0 .35.03.69.09 1H2.05c-.03-.33-.05-.66-.05-1 0-3.87 3.13-7 7-7h8V2zM7 22l-4-4 4-4v3h8c2.76 0 5-2.24 5-5 0-.35-.03-.69-.09-1h2.04c.03.33.05.66.05 1 0 3.87-3.13 7-7 7H7v3z" fill="currentColor" />
-                    </svg>
-                  )}
-                  <span>{loopMode === 'none' ? 'Repeat' : loopMode === 'all' ? 'Repeat all' : 'Repeat one'}</span>
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* Metadata section */}
           <div className="player-meta-section">
             {selected.metadata?.album && (
               <div className="player-meta-row">
@@ -2525,12 +2589,6 @@ function App() {
               <span className="player-meta-value">{selected.collection}</span>
             </div>
           </div>
-
-          {!MEDIA_BASE_URL && (
-            <p className="player-no-media">
-              Set <code>VITE_MEDIA_BASE_URL</code> in your <code>.env</code> file to stream media.
-            </p>
-          )}
         </div>
       </div>
     )
@@ -2599,6 +2657,19 @@ function App() {
         {renderActiveTab()}
       </div>
 
+      {/* Single media element (plays both audio + video). In mini-player it is visually hidden; in expanded video it becomes full-screen. */}
+      <video
+        ref={mediaRef}
+        className={
+          isFullPlayerVisible && selected?.type === 'video'
+            ? 'media-engine media-engine-video'
+            : 'media-engine media-engine-audio'
+        }
+        playsInline
+        preload="metadata"
+        controls={Boolean(isFullPlayerVisible && selected?.type === 'video')}
+      />
+
       {renderMiniPlayer()}
 
       <nav className="bottom-nav">
@@ -2626,3 +2697,4 @@ function App() {
 }
 
 export default App
+
